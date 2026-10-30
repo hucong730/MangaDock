@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mangadock-core"
+version = "0.1.0"
+description = "Framework-independent core for MangaDock"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mangadock_core = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov=mangadock_core --cov-report=term-missing --cov-fail-under=100"

@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.venv
+.tools
+.superpowers
+.worktrees
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/*.egg-info
+.coverage
+.DS_Store

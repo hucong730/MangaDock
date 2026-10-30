@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv*/
+build/
+dist/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local tooling and agent state
+.tools/
+.superpowers/
+.worktrees/
+
+# Local configuration and data
+.env
+!.env.example
+*.db
+*.sqlite3
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
