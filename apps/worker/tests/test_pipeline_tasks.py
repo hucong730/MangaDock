@@ -52,6 +52,7 @@ async def project_factory(monkeypatch: pytest.MonkeyPatch):
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(pipeline_tasks, "SessionLocal", session_factory)
     monkeypatch.setattr(start_script, "delay", Mock())
+    monkeypatch.setattr("mangadock_worker.character_tasks.stage_characters.delay", Mock())
 
     async def create_project() -> int:
         async with session_factory() as session:
@@ -265,3 +266,25 @@ async def test_chord_enqueue_failure_marks_script_failed(
     assert script.status == "failed"
     assert script.requires_attention is True
     assert "入队失败" in script.error
+
+
+@pytest.mark.asyncio
+async def test_script_to_characters_enqueue_failure_is_retryable(project_factory) -> None:
+    create_project, session_factory = project_factory
+    project_id = await create_project()
+    pipeline_tasks.provider_for_record = lambda _: FakeLLMProvider()
+    assert await run_stage_outline(project_id)
+    assert await run_stage_episode(project_id, 1)
+    assert await run_stage_episode(project_id, 2)
+    from mangadock_worker.character_tasks import stage_characters
+
+    stage_characters.delay.side_effect = RuntimeError("broker down")
+
+    assert await run_stage_script(project_id) is False
+
+    script = await get_stage(session_factory, project_id, "script")
+    characters = await get_stage(session_factory, project_id, "characters")
+    assert script.status == "done"
+    assert characters.status == "failed"
+    assert characters.requires_attention is True
+    assert "入队失败" in characters.error

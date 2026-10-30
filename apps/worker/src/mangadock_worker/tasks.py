@@ -1,5 +1,5 @@
 from mangadock_worker.celery_app import celery_app
-from mangadock_worker import pipeline_tasks
+from mangadock_worker import character_tasks, pipeline_tasks, storyboard_tasks
 
 
 @celery_app.task

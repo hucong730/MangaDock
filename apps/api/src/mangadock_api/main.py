@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from mangadock_api.database import Base, engine, get_db
 from mangadock_api import models
 from mangadock_api.routers.providers import router as providers_router
+from mangadock_api.routers.assets import router as assets_router
+from mangadock_api.routers.characters import router as characters_router
 from mangadock_api.routers.projects import router as projects_router
+from mangadock_api.routers.storyboard import router as storyboard_router
 
 
 async def ensure_provider_capabilities(connection: AsyncConnection) -> None:
@@ -38,6 +41,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="MangaDock API", lifespan=lifespan)
 app.include_router(providers_router)
 app.include_router(projects_router)
+app.include_router(characters_router)
+app.include_router(storyboard_router)
+app.include_router(assets_router)
 
 
 @app.get("/healthz")

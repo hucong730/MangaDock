@@ -9,6 +9,7 @@ COPY packages/core/pyproject.toml packages/core/pyproject.toml
 COPY packages/core/src packages/core/src
 COPY packages/providers/pyproject.toml packages/providers/pyproject.toml
 COPY packages/providers/src packages/providers/src
+COPY packages/providers/comfyui packages/providers/comfyui
 COPY packages/persistence/pyproject.toml packages/persistence/pyproject.toml
 COPY packages/persistence/src packages/persistence/src
 COPY apps/worker/pyproject.toml apps/worker/pyproject.toml

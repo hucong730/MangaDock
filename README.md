@@ -6,24 +6,24 @@ MangaDock (漫坞) — One novel in, a comic-drama series out. An open, pluggabl
 
 ## 当前阶段
 
-阶段二已支持小说导入和剧本生成管线：
+阶段三已支持角色设定、参考图与分镜管线：
 
-- 上传 PDF / DOCX / TXT，原始文件上限 20MB，统一解析为 Novel。
-- 生成结构化 `outline.json` 与 `script.json`，包含角色、爽点节奏、分集分场、动作和台词。
-- Celery 执行大纲阶段，按集并行生成剧本；状态、进度和错误落库。
-- 前端支持项目上传、进度时间线、Outline/Script 视图和失败阶段重试。
-- 阶段一的 Provider 配置 CRUD、健康检查和 PostgreSQL/Redis 基础设施保留。
+- 上传 PDF / DOCX / TXT，生成结构化 Outline 和分集 Script，状态与失败原因落库。
+- 为角色生成中英提示词、音色和外观锚点；正面全身图经人工确认后才生成其他视图。
+- 生成 episode → segment → cut 分镜，机器校验 2–5 秒镜头、角色锚点和完整台词覆盖，并生成每镜关键帧。
+- LLM 与图像模型可按项目独立路由；支持 OpenAI 兼容、ComfyUI 和不访问真实服务的 Fake/Mock 实现。
+- 前端提供项目进度、Outline/Script、角色卡、锚点确认、单图重试和分镜时间轴。
 
 ## 仓库结构
 
 ```text
 apps/
   api/                 FastAPI HTTP 服务与入队
-  worker/              Celery 大纲、逐集生成与汇总
+  worker/              Celery 各阶段任务与图片生成
   web/                 React + Vite + TypeScript 前端
 packages/
   core/                解析、schema、Prompt 与生成逻辑
-  providers/           LLMProvider、OpenAI 兼容与 Fake 实现
+  providers/           LLM/Image 抽象、OpenAI 兼容、ComfyUI 与 Mock 实现
   persistence/         共享 SQLAlchemy 模型与异步 session
 docs/
   decisions/           架构决策记录
@@ -111,7 +111,7 @@ curl -X POST http://localhost:8000/api/v1/projects \
   -F 'file=@/tmp/mangadock-novel.txt;type=text/plain'
 ```
 
-项目详情会显示“剧本 → 图像 → 视频”的模型协作配置。图像和视频配置供后续阶段使用，本阶段尚未实现媒体生成。已被引用的 Provider 不能删除、停用或移除使用中的能力。
+项目详情会显示“剧本 → 图像 → 视频”的模型协作配置。图像 Provider 用于角色参考图和分镜关键帧，视频 Provider 预留给成片阶段。Fake 图像模式允许省略 image 路由；live 图像模式必须配置 ComfyUI Provider。已被引用的 Provider 不能删除、停用或移除使用中的能力。
 
 ## 使用真实模型
 
@@ -136,9 +136,61 @@ OPENAI_MODEL=your-model
 | GET | `/api/v1/projects/{id}/status` | 阶段状态和子任务进度 |
 | GET | `/api/v1/projects/{id}/outline` | Outline JSON |
 | GET | `/api/v1/projects/{id}/script` | Script JSON |
-| POST | `/api/v1/projects/{id}/stages/{stage}/retry` | 重试 failed 的 outline 或 script |
+| GET | `/api/v1/projects/{id}/characters` | 角色设定、图片与锚点确认状态 |
+| GET | `/api/v1/projects/{id}/storyboard` | 分镜 JSON 与关键帧相对路径 |
+| POST | `/api/v1/projects/{id}/characters/{character_id}/anchor-confirmation` | 确认正面全身锚点并解锁其他视图 |
+| POST | `/api/v1/projects/{id}/character-images/{image_id}/regenerate` | 单独重生成一张角色图 |
+| GET | `/api/v1/assets/{path}` | 读取共享卷内的角色图或关键帧 |
+| POST | `/api/v1/projects/{id}/stages/{stage}/retry` | 重试 failed 的 outline、script、characters 或 storyboard |
 
 上传解析错误包括不支持格式、超过 20MB、损坏文件、加密 PDF、空文件、非法 UTF-8 和超长文本。Outline 自动重试一次后仍失败会标记人工处理；前端可手动重试失败阶段。
+
+## 角色与分镜 Mock 验收
+
+默认同时设置 `MANGADOCK_LLM_MODE=fake` 和 `MANGADOCK_IMAGE_MODE=fake`，不需要 ComfyUI。创建项目并等待 Script 完成后：
+
+1. `GET /api/v1/projects/{id}/characters` 查看正面全身锚点图。
+2. `POST /api/v1/projects/{id}/characters/{character_id}/anchor-confirmation` 确认锚点，解锁其他视图。
+3. 全部角色确认后，角色阶段自动完成并生成分镜。
+4. `GET /api/v1/projects/{id}/storyboard` 查看分镜和关键帧；前端角色卡与时间轴可直接查看。
+5. 失败图片可用 `POST /api/v1/projects/{id}/character-images/{image_id}/regenerate` 单独重试，不影响其他图片。
+
+## 连接本地 ComfyUI（Qwen Image 2.1 int8）
+
+先启动 ComfyUI 并确认 `http://127.0.0.1:8188/object_info` 可访问。模型文件放在：
+
+```text
+ComfyUI/models/diffusion_models/qwen_image_2.1_int8_convrot.safetensors
+ComfyUI/models/text_encoders/qwen3vl_8b_int8_convrot.safetensors
+ComfyUI/models/vae/qwen_image_2.1_vae_bf16.safetensors
+```
+
+在 `.env` 中保留剧本 Mock，同时让图像走真实 ComfyUI：
+
+```dotenv
+MANGADOCK_LLM_MODE=fake
+MANGADOCK_IMAGE_MODE=live
+ASSET_ROOT=/data
+COMFYUI_TEMPLATE_DIR=/app/packages/providers/comfyui/templates
+COMFYUI_API_KEY=
+```
+
+然后创建一个 image 能力 Provider：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/llm-providers/ \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "local-qwen-image",
+    "base_url": "http://host.docker.internal:8188",
+    "model": "qwen-image-2.1-int8",
+    "api_key_env": "COMFYUI_API_KEY",
+    "capabilities": ["image"],
+    "enabled": true
+  }'
+```
+
+创建项目时将该 Provider 的 id 传给 `image_provider_id`。`host.docker.internal` 用于 worker 容器访问 Mac 上的 ComfyUI；若在宿主机直接运行 worker，则改用 `http://127.0.0.1:8188`。API Key 环境变量可以为空，模板位于 `packages/providers/comfyui/templates`，可替换工作流而不改业务代码。
 
 ## 本地测试
 
@@ -172,9 +224,11 @@ OpenAI 兼容测试使用 respx，管线使用 FakeLLMProvider，均不访问真
 - [Provider 接口设计 ADR](docs/decisions/0001-llm-provider-abstraction.md)
 - [Outline/Script schema ADR](docs/decisions/0002-outline-script-schema.md)
 - [多模型能力路由 ADR](docs/decisions/0003-model-capability-routing.md)
+- [角色锚点与分镜 ADR](docs/decisions/0004-character-anchor-storyboard.md)
 - [阶段一设计](docs/superpowers/specs/2026-10-30-stage-one-foundation-design.md)
 - [阶段二设计](docs/superpowers/specs/2026-10-30-stage-two-novel-script-pipeline-design.md)
+- [阶段三设计](docs/superpowers/specs/2026-10-30-character-storyboard-design.md)
 
 ## 当前边界
 
-尚未实现角色图片、分镜、视频、TTS、认证、多租户和生产级密钥管理。数据库仍使用启动时自动建表，尚未引入 Alembic；20MB 以上或超过字符上限的长小说需要后续分章摘要架构。许可证为 [MIT](LICENSE)。
+已实现角色参考图和分镜，尚未实现场景图、视频、TTS、认证、多租户和生产级密钥管理。数据库仍使用启动时自动建表，尚未引入 Alembic；20MB 以上或超过字符上限的长小说需要后续分章摘要架构。许可证为 [MIT](LICENSE)。

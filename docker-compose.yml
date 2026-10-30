@@ -7,6 +7,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://mangadock:mangadock@postgres:5432/mangadock}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MANGADOCK_MAX_NOVEL_CHARS: ${MANGADOCK_MAX_NOVEL_CHARS:-120000}
+      ASSET_ROOT: /data
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-example-model}
@@ -27,6 +28,8 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+    volumes:
+      - mangadock_assets:/data
 
   worker:
     build:
@@ -36,9 +39,15 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://mangadock:mangadock@postgres:5432/mangadock}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MANGADOCK_LLM_MODE: ${MANGADOCK_LLM_MODE:-fake}
+      MANGADOCK_IMAGE_MODE: ${MANGADOCK_IMAGE_MODE:-fake}
+      ASSET_ROOT: /data
+      COMFYUI_TEMPLATE_DIR: /app/packages/providers/comfyui/templates
+      COMFYUI_API_KEY: ${COMFYUI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-example-model}
+    volumes:
+      - mangadock_assets:/data
     depends_on:
       redis:
         condition: service_healthy
@@ -83,3 +92,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  mangadock_assets:

@@ -2,17 +2,32 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import {
+  confirmAnchor,
+  fetchCharacters,
   fetchOutline,
   fetchProject,
   fetchProjectStatus,
   fetchProviders,
   fetchScript,
+  fetchStoryboard,
+  regenerateCharacterImage,
   retryStage,
 } from "../api";
+import CharacterGallery from "../components/CharacterGallery";
 import OutlineView from "../components/OutlineView";
 import ScriptView from "../components/ScriptView";
 import StatusTimeline from "../components/StatusTimeline";
-import type { LLMProvider, Outline, ProjectStatus, ProviderRoute, Script } from "../types";
+import StoryboardTimeline from "../components/StoryboardTimeline";
+import type {
+  CharacterAsset,
+  LLMProvider,
+  Outline,
+  ProjectStatus,
+  ProviderRoute,
+  RetryableStage,
+  Script,
+  Storyboard,
+} from "../types";
 
 function ProjectDetailPage() {
   const { id: rawId } = useParams();
@@ -21,6 +36,8 @@ function ProjectDetailPage() {
   const [status, setStatus] = useState<ProjectStatus | null>(null);
   const [outline, setOutline] = useState<Outline | null>(null);
   const [script, setScript] = useState<Script | null>(null);
+  const [characterAsset, setCharacterAsset] = useState<CharacterAsset>({ characters: [] });
+  const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [routes, setRoutes] = useState<ProviderRoute[]>([]);
   const [scriptProviderId, setScriptProviderId] = useState<number>();
@@ -58,6 +75,16 @@ function ProjectDetailPage() {
         if (scriptStage?.status === "done") {
           setScript(await fetchScript(projectId));
         }
+        const characterStage = next.stages.find((stage) => stage.stage === "characters");
+        if (characterStage) {
+          setCharacterAsset(await fetchCharacters(projectId));
+        }
+        const storyboardStage = next.stages.find((stage) => stage.stage === "storyboard");
+        if (storyboardStage && ["done", "failed"].includes(storyboardStage.status)) {
+          setStoryboard(await fetchStoryboard(projectId));
+        } else if (storyboardStage) {
+          setStoryboard(null);
+        }
         const hasFailedStage = next.stages.some((stage) => stage.status === "failed");
         const hasActiveStage = next.stages.some((stage) => ["pending", "running"].includes(stage.status));
         if (!hasFailedStage && hasActiveStage) {
@@ -78,19 +105,58 @@ function ProjectDetailPage() {
     };
   }, [projectId, retryVersion]);
 
-  async function handleRetry(stage: "outline" | "script") {
+  function markStagesPending(stageNames: string[]) {
+    setStatus((current) => current ? {
+      ...current,
+      stages: current.stages.map((stage) => stageNames.includes(stage.stage) ? {
+        ...stage,
+        status: "pending",
+        error: null,
+        requires_attention: false,
+      } : stage),
+    } : current);
+  }
+
+  async function handleRetry(stage: RetryableStage) {
     setError("");
     try {
       await retryStage(projectId, stage);
       if (stage === "outline") {
         setOutline(null);
         setScript(null);
-      } else {
+      } else if (stage === "script") {
         setScript(null);
       }
+      markStagesPending([stage]);
       setRetryVersion((version) => version + 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "重试失败");
+    }
+  }
+
+  function continueCharacterPipeline() {
+    setStoryboard(null);
+    markStagesPending(["characters", "storyboard"]);
+    setRetryVersion((version) => version + 1);
+  }
+
+  async function handleConfirmAnchor(characterId: number) {
+    try {
+      await confirmAnchor(projectId, characterId);
+      setError("");
+      continueCharacterPipeline();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "锚点确认失败");
+    }
+  }
+
+  async function handleRegenerateImage(imageId: number) {
+    try {
+      await regenerateCharacterImage(projectId, imageId);
+      setError("");
+      continueCharacterPipeline();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "图片重生成失败");
     }
   }
 
@@ -124,7 +190,7 @@ function ProjectDetailPage() {
             );
           })}
         </div>
-        <p className="form-hint">剧本模型用于当前阶段；图像与视频模型将在后续阶段使用。</p>
+        <p className="form-hint">剧本模型负责文本资产，图像模型负责角色参考图与关键帧；视频模型预留给成片阶段。</p>
       </section>
       <section className="panel">
         <h2>生成进度</h2>
@@ -136,6 +202,16 @@ function ProjectDetailPage() {
       </section>
       {outline && <section className="panel"><OutlineView outline={outline} /></section>}
       {script && <section className="panel"><ScriptView script={script} /></section>}
+      <section className="panel">
+        <CharacterGallery
+          characters={characterAsset.characters}
+          onConfirm={handleConfirmAnchor}
+          onRegenerate={handleRegenerateImage}
+        />
+      </section>
+      {storyboard && (
+        <section className="panel"><StoryboardTimeline storyboard={storyboard} /></section>
+      )}
     </main>
   );
 }

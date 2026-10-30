@@ -8,6 +8,10 @@ const api = vi.hoisted(() => ({
   fetchProjectStatus: vi.fn(),
   fetchOutline: vi.fn(),
   fetchScript: vi.fn(),
+  fetchCharacters: vi.fn(),
+  fetchStoryboard: vi.fn(),
+  confirmAnchor: vi.fn(),
+  regenerateCharacterImage: vi.fn(),
   retryStage: vi.fn(),
 }));
 
@@ -127,6 +131,10 @@ beforeEach(() => {
   ]);
   api.fetchOutline.mockResolvedValue(outline);
   api.fetchScript.mockResolvedValue(script);
+  api.fetchCharacters.mockResolvedValue({ characters: [] });
+  api.fetchStoryboard.mockResolvedValue({ episodes: [] });
+  api.confirmAnchor.mockResolvedValue({ status: "queued" });
+  api.regenerateCharacterImage.mockResolvedValue({ status: "queued" });
   api.retryStage.mockResolvedValue({ project_id: 7, stage: "script", status: "pending" });
 });
 
@@ -235,5 +243,82 @@ describe("ProjectDetailPage", () => {
 
     expect(await screen.findByText(/旧剧本模型/)).toBeInTheDocument();
     expect(screen.getByText(/legacy-script/)).toBeInTheDocument();
+  });
+
+  it("loads failed character assets and keeps polling after an image retry", async () => {
+    vi.useFakeTimers();
+    const stage3Status = (characterStatus: string, storyboardStatus: string) => ({
+      project_id: 7,
+      stages: [
+        ...status("done", "done").stages,
+        {
+          stage: "characters",
+          status: characterStatus,
+          completed_items: 0,
+          total_items: 1,
+          attempt_count: 1,
+          requires_attention: characterStatus === "failed",
+          error: characterStatus === "failed" ? "图片失败" : null,
+        },
+        {
+          stage: "storyboard",
+          status: storyboardStatus,
+          completed_items: 0,
+          total_items: 1,
+          attempt_count: 0,
+          requires_attention: false,
+          error: null,
+        },
+      ],
+    });
+    api.fetchProjectStatus
+      .mockResolvedValueOnce(stage3Status("failed", "pending"))
+      .mockResolvedValueOnce(stage3Status("running", "pending"))
+      .mockResolvedValueOnce(stage3Status("done", "done"));
+    api.fetchCharacters.mockResolvedValue({
+      characters: [{
+        id: 1,
+        name: "林夏",
+        biography: "调查记者",
+        prompt_zh: "林夏",
+        prompt_en: "Lin Xia",
+        voice_prompt: "冷静女声",
+        anchor_features: ["红绳"],
+        anchor_confirmed: true,
+        images: [{
+          id: 2,
+          label: "avatar",
+          status: "failed",
+          path: null,
+          width: null,
+          height: null,
+          format: null,
+          workflow_id: null,
+          error: "图片失败",
+        }],
+      }],
+    });
+
+    renderPage();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api.regenerateCharacterImage).toHaveBeenCalledWith(7, 2);
+    expect(api.fetchProjectStatus).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+      await Promise.resolve();
+    });
+    expect(api.fetchProjectStatus).toHaveBeenCalledTimes(3);
+    expect(api.fetchCharacters).toHaveBeenCalled();
   });
 });

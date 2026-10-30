@@ -345,6 +345,20 @@ async def run_stage_script(project_id: int) -> bool:
             error=None,
             requires_attention=False,
         )
+    from mangadock_worker.character_tasks import get_stage, stage_characters
+
+    await get_stage(project_id, "characters")
+    try:
+        stage_characters.delay(project_id)
+    except Exception:
+        await set_stage(
+            project_id,
+            "characters",
+            status="failed",
+            error="任务入队失败，请重试",
+            requires_attention=True,
+        )
+        return False
     return True
 
 

@@ -20,6 +20,7 @@ dist/
 .worktrees/
 
 # Local configuration and data
+assets/
 .env
 !.env.example
 *.db

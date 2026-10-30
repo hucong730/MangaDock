@@ -5,6 +5,7 @@
 .tools
 .superpowers
 .worktrees
+assets
 **/node_modules
 **/dist
 **/__pycache__

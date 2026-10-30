@@ -119,3 +119,74 @@ class ProjectProviderRouteRecord(Base):
     )
     role: Mapped[str] = mapped_column(String(20))
     provider_id: Mapped[int] = mapped_column(ForeignKey("llm_providers.id"))
+
+
+class CharacterRecord(Base):
+    __tablename__ = "characters"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_project_character_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
+    biography: Mapped[str] = mapped_column(Text)
+    prompt_zh: Mapped[str] = mapped_column(Text)
+    prompt_en: Mapped[str] = mapped_column(Text)
+    voice_prompt: Mapped[str] = mapped_column(Text)
+    anchor_features: Mapped[list] = mapped_column(JSON)
+    anchor_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CharacterImageRecord(Base):
+    __tablename__ = "character_images"
+    __table_args__ = (
+        UniqueConstraint("character_id", "label", name="uq_character_image_label"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("characters.id", ondelete="CASCADE"), index=True
+    )
+    label: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    format: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    workflow_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProjectAssetRecord(Base):
+    __tablename__ = "project_assets"
+    __table_args__ = (
+        UniqueConstraint("project_id", "kind", name="uq_project_asset_kind"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(40))
+    payload_json: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

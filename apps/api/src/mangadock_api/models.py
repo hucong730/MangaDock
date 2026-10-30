@@ -1,5 +1,8 @@
 from mangadock_persistence.models import (
+    CharacterImageRecord,
+    CharacterRecord,
     LLMProviderRecord,
+    ProjectAssetRecord,
     ProjectEpisodeRecord,
     ProjectProviderRouteRecord,
     ProjectRecord,
@@ -8,7 +11,10 @@ from mangadock_persistence.models import (
 )
 
 __all__ = [
+    "CharacterImageRecord",
+    "CharacterRecord",
     "LLMProviderRecord",
+    "ProjectAssetRecord",
     "ProjectEpisodeRecord",
     "ProjectProviderRouteRecord",
     "ProjectRecord",

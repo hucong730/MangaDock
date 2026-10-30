@@ -24,7 +24,7 @@ test = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-mangadock_providers = ["py.typed"]
+mangadock_providers = ["py.typed", "comfyui/templates/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

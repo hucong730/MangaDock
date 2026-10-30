@@ -278,7 +278,7 @@ async def retry_stage(
     stage: str,
     session: AsyncSession = Depends(get_db),
 ) -> RetryResponse:
-    if stage not in {"outline", "script"}:
+    if stage not in {"outline", "script", "characters", "storyboard"}:
         raise HTTPException(status_code=422, detail="不支持的重试阶段")
     project = await get_project(session, project_id)
     stages = await get_stages(session, project_id)
@@ -303,7 +303,7 @@ async def retry_stage(
         script.error = None
         script.requires_attention = False
         task_name = "mangadock_worker.tasks.stage_outline"
-    else:
+    elif stage == "script":
         if project.outline_json is None:
             raise HTTPException(status_code=409, detail="Outline 尚未完成")
         project.script_json = None
@@ -322,6 +322,8 @@ async def retry_stage(
             episode.error = None
             episode.payload_json = None
         task_name = "mangadock_worker.tasks.start_script"
+    else:
+        task_name = f"mangadock_worker.tasks.stage_{stage}"
 
     current.status = "pending"
     current.completed_items = 0

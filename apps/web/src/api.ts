@@ -1,4 +1,5 @@
 import type {
+  CharacterAsset,
   CreateProviderInput,
   HealthResponse,
   LLMProvider,
@@ -7,6 +8,7 @@ import type {
   ProjectStatus,
   ProjectSummary,
   Script,
+  Storyboard,
 } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -56,6 +58,26 @@ export function fetchScript(id: number): Promise<Script> {
   return request<Script>(`/api/v1/projects/${id}/script`);
 }
 
+export function fetchCharacters(id: number): Promise<CharacterAsset> {
+  return request<CharacterAsset>(`/api/v1/projects/${id}/characters`);
+}
+
+export function fetchStoryboard(id: number): Promise<Storyboard> {
+  return request<Storyboard>(`/api/v1/projects/${id}/storyboard`);
+}
+
+export function confirmAnchor(projectId: number, characterId: number) {
+  return request(`/api/v1/projects/${projectId}/characters/${characterId}/anchor-confirmation`, {
+    method: "POST",
+  });
+}
+
+export function regenerateCharacterImage(projectId: number, imageId: number) {
+  return request(`/api/v1/projects/${projectId}/character-images/${imageId}/regenerate`, {
+    method: "POST",
+  });
+}
+
 export function uploadProject(
   file: File,
   providerId: number,
@@ -72,7 +94,7 @@ export function uploadProject(
 
 export function retryStage(
   id: number,
-  stage: "outline" | "script",
+  stage: "outline" | "script" | "characters" | "storyboard",
 ): Promise<{ project_id: number; stage: string; status: string }> {
   return request(`/api/v1/projects/${id}/stages/${stage}/retry`, { method: "POST" });
 }

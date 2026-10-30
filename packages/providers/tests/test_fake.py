@@ -1,6 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
+from mangadock_core.schemas import CharacterBible, Storyboard
 from mangadock_providers import FakeLLMProvider
 
 
@@ -71,3 +72,15 @@ async def test_fake_provider_rejects_unknown_schema() -> None:
 
     with pytest.raises(ValueError, match="Unsupported"):
         await FakeLLMProvider().chat([], Unsupported)
+
+
+@pytest.mark.asyncio
+async def test_fake_provider_returns_character_bible_and_storyboard() -> None:
+    provider = FakeLLMProvider()
+
+    bible = await provider.chat([], CharacterBible)
+    board = await provider.chat([], Storyboard)
+
+    assert len(bible.characters) == 2
+    assert len(board.episodes) == 2
+    assert board.episodes[0].segments[0].cuts[0].keyframe_image is None

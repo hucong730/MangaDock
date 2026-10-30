@@ -31,7 +31,8 @@ export interface ProviderRoute {
   provider_id: number;
 }
 
-export type StageStatus = "pending" | "running" | "done" | "failed";
+export type StageStatus = "pending" | "running" | "done" | "failed" | "waiting_confirmation";
+export type RetryableStage = "outline" | "script" | "characters" | "storyboard";
 
 export interface ProjectStage {
   stage: string;
@@ -114,4 +115,71 @@ export interface Episode {
 export interface Script {
   cast: CastMember[];
   episodes: Episode[];
+}
+
+export interface CharacterImage {
+  id: number;
+  label: string;
+  status: string;
+  path: string | null;
+  width: number | null;
+  height: number | null;
+  format: string | null;
+  workflow_id: string | null;
+  error: string | null;
+}
+
+export interface Character {
+  id: number;
+  name: string;
+  biography: string;
+  prompt_zh: string;
+  prompt_en: string;
+  voice_prompt: string;
+  anchor_features: string[];
+  anchor_confirmed: boolean;
+  images: CharacterImage[];
+}
+
+export interface CharacterAsset {
+  characters: Character[];
+}
+
+export interface LineRef {
+  scene: number;
+  order: number;
+}
+
+export interface KeyframeImage {
+  path: string;
+  width: number;
+  height: number;
+  format: string;
+  workflow_id: string;
+}
+
+export interface Cut {
+  index: number;
+  duration_s: number;
+  characters: string[];
+  prompt: string;
+  camera: string;
+  line_refs: LineRef[];
+  scene_ref: string | null;
+  keyframe_image: KeyframeImage | null;
+}
+
+export interface Segment {
+  index: number;
+  duration_s: number;
+  cuts: Cut[];
+}
+
+export interface EpisodeBoard {
+  episode: number;
+  segments: Segment[];
+}
+
+export interface Storyboard {
+  episodes: EpisodeBoard[];
 }
