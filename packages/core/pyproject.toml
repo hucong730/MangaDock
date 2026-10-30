@@ -7,6 +7,12 @@ name = "mangadock-core"
 version = "0.1.0"
 description = "Framework-independent core for MangaDock"
 requires-python = ">=3.12"
+dependencies = [
+  "mangadock-providers==0.1.0",
+  "pydantic>=2.7,<3",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+]
 
 [project.optional-dependencies]
 test = [
@@ -18,7 +24,7 @@ test = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-mangadock_core = ["py.typed"]
+mangadock_core = ["py.typed", "pipeline/prompts/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

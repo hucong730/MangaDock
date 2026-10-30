@@ -9,8 +9,12 @@ description = "FastAPI HTTP service for MangaDock"
 requires-python = ">=3.12"
 dependencies = [
   "asyncpg>=0.29,<1",
+  "celery[redis]>=5.4,<6",
   "fastapi>=0.115,<1",
+  "mangadock-core==0.1.0",
+  "mangadock-persistence==0.1.0",
   "pydantic-settings>=2.5,<3",
+  "python-multipart>=0.0.9,<1",
   "sqlalchemy[asyncio]>=2.0,<3",
   "uvicorn>=0.30,<1",
 ]

@@ -17,7 +17,7 @@ from mangadock_api.main import app
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncIterator[AsyncClient]:
+async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         poolclass=StaticPool,
@@ -25,7 +25,12 @@ async def client() -> AsyncIterator[AsyncClient]:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+    yield session_factory
+    await engine.dispose()
 
+
+@pytest_asyncio.fixture
+async def client(session_factory) -> AsyncIterator[AsyncClient]:
     async def override_get_db() -> AsyncIterator[AsyncSession]:
         async with session_factory() as session:
             yield session
@@ -38,4 +43,3 @@ async def client() -> AsyncIterator[AsyncClient]:
         yield test_client
 
     app.dependency_overrides.clear()
-    await engine.dispose()

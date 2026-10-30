@@ -9,11 +9,16 @@ description = "Celery worker for MangaDock"
 requires-python = ">=3.12"
 dependencies = [
   "celery[redis]>=5.4,<6",
+  "mangadock-core==0.1.0",
+  "mangadock-persistence==0.1.0",
+  "mangadock-providers==0.1.0",
 ]
 
 [project.optional-dependencies]
 test = [
+  "aiosqlite>=0.20,<1",
   "pytest>=8,<9",
+  "pytest-asyncio>=0.24,<2",
 ]
 
 [tool.setuptools.packages.find]

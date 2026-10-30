@@ -13,3 +13,87 @@ export interface LLMProvider {
   created_at: string;
   updated_at: string;
 }
+
+export type StageStatus = "pending" | "running" | "done" | "failed";
+
+export interface ProjectStage {
+  stage: string;
+  status: StageStatus;
+  completed_items: number;
+  total_items: number;
+  attempt_count: number;
+  requires_attention: boolean;
+  error: string | null;
+}
+
+export interface ProjectSummary {
+  id: number;
+  title: string;
+  source_filename: string;
+  source_media_type: string;
+  provider_id: number;
+  created_at: string;
+  stages: ProjectStage[];
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  novel_json: {
+    title: string;
+    chapters: { index: number; title: string; text: string }[];
+  };
+}
+
+export interface ProjectStatus {
+  project_id: number;
+  stages: ProjectStage[];
+}
+
+export interface CastMember {
+  name: string;
+  role: string;
+  weight: number;
+}
+
+export interface EpisodeBeat {
+  episode: number;
+  summary: string;
+  payoff_type: string;
+  payoff_intensity: number;
+}
+
+export interface Outline {
+  synopsis: string;
+  cast: CastMember[];
+  episode_beat: EpisodeBeat[];
+  asset_list: string[];
+}
+
+export interface ActionBeat {
+  order: number;
+  text: string;
+}
+
+export interface ScriptLine {
+  order: number;
+  character: string;
+  emotion: string;
+  text: string;
+}
+
+export interface Scene {
+  index: number;
+  heading: string;
+  action_beats: ActionBeat[];
+  lines: ScriptLine[];
+}
+
+export interface Episode {
+  episode: number;
+  estimated_duration_s: number;
+  scenes: Scene[];
+}
+
+export interface Script {
+  cast: CastMember[];
+  episodes: Episode[];
+}

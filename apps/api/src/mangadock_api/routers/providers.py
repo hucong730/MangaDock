@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mangadock_api.database import get_db
-from mangadock_api.models import LLMProviderRecord
+from mangadock_api.models import LLMProviderRecord, ProjectRecord
 from mangadock_api.schemas import (
     LLMProviderCreate,
     LLMProviderRead,
@@ -96,6 +96,16 @@ async def delete_provider(
     session: AsyncSession = Depends(get_db),
 ) -> Response:
     provider = await get_provider(provider_id, session)
+    project_id = await session.scalar(
+        select(ProjectRecord.id)
+        .where(ProjectRecord.provider_id == provider_id)
+        .limit(1)
+    )
+    if project_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Provider 已被项目使用，无法删除",
+        )
     await session.delete(provider)
     await session.commit()
     return Response(status_code=204)

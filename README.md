@@ -6,36 +6,35 @@ MangaDock (漫坞) — One novel in, a comic-drama series out. An open, pluggabl
 
 ## 当前阶段
 
-阶段一提供仓库骨架、Provider 抽象层和本地开发基础设施，尚未实现小说或漫剧生成管线。
+阶段二已支持小说导入和剧本生成管线：
 
-- FastAPI `/healthz` 与 `llm_providers` 配置 CRUD
-- SQLAlchemy 异步访问 PostgreSQL，测试使用 SQLite
-- Celery + Redis worker，以及 `ping → pong` 验证任务
-- 模型无关的 `LLMProvider` 与 OpenAI 兼容结构化输出实现
-- React + TypeScript 首页，显示健康状态和 Provider 列表
-- Docker Compose 一键启动 api、worker、web、postgres、redis
+- 上传 PDF / DOCX / TXT，原始文件上限 20MB，统一解析为 Novel。
+- 生成结构化 `outline.json` 与 `script.json`，包含角色、爽点节奏、分集分场、动作和台词。
+- Celery 执行大纲阶段，按集并行生成剧本；状态、进度和错误落库。
+- 前端支持项目上传、进度时间线、Outline/Script 视图和失败阶段重试。
+- 阶段一的 Provider 配置 CRUD、健康检查和 PostgreSQL/Redis 基础设施保留。
 
 ## 仓库结构
 
 ```text
 apps/
-  api/                 FastAPI HTTP 服务
-  worker/              Celery 异步任务执行器
+  api/                 FastAPI HTTP 服务与入队
+  worker/              Celery 大纲、逐集生成与汇总
   web/                 React + Vite + TypeScript 前端
 packages/
-  core/                无框架依赖的管线核心（本阶段仅骨架）
-  providers/           模型抽象与 OpenAI 兼容实现
+  core/                解析、schema、Prompt 与生成逻辑
+  providers/           LLMProvider、OpenAI 兼容与 Fake 实现
+  persistence/         共享 SQLAlchemy 模型与异步 session
 docs/
   decisions/           架构决策记录
 ```
 
-## 快速开始
+## 快速开始（默认 Mock Provider）
 
-前置条件：支持 Apple Silicon 的 Docker Desktop（或等价 Docker 运行时）和 Docker Compose v2。仅启动全栈不需要真实模型 API Key。
+前置条件：支持 Apple Silicon 的 Docker Desktop（或等价 Docker 运行时）和 Docker Compose v2。默认 `MANGADOCK_LLM_MODE=fake`，不需要真实 API Key。
 
 ```bash
 cp .env.example .env
-# 如需调用真实模型，在 .env 中填写 OPENAI_API_KEY；不要提交该文件。
 docker compose up --build
 ```
 
@@ -52,33 +51,62 @@ docker compose down
 # 如需同时删除 PostgreSQL/Redis 数据卷：docker compose down -v
 ```
 
-## Provider 配置 API
+## 用 Mock Provider 验证完整流程
 
-路由前缀：`/api/v1/llm-providers/`。
-
-| 方法 | 路径 | 用途 |
-| --- | --- | --- |
-| POST | `/api/v1/llm-providers/` | 创建配置 |
-| GET | `/api/v1/llm-providers/` | 列出配置 |
-| GET | `/api/v1/llm-providers/{id}` | 获取配置 |
-| PATCH | `/api/v1/llm-providers/{id}` | 部分更新 |
-| DELETE | `/api/v1/llm-providers/{id}` | 删除配置 |
-
-示例：
+先创建一个指向本地示例地址的 Provider。Fake 模式不会向该地址发请求，但项目仍通过 `provider_id` 选择配置，完整解析、schema 校验、队列和数据库路径都会执行。
 
 ```bash
+# 1. 启动并创建 Provider
 curl -X POST http://localhost:8000/api/v1/llm-providers/ \
   -H 'Content-Type: application/json' \
   -d '{
-    "name": "primary",
-    "base_url": "https://api.openai.com/v1",
-    "model": "example-model",
+    "name": "fake",
+    "base_url": "https://api.example.com/v1",
+    "model": "fake-model",
     "api_key_env": "OPENAI_API_KEY",
     "enabled": true
   }'
+
+# 2. 准备小说并上传（将返回的 Provider id 替换到 provider_id）
+printf '第一章 归来\n林夏回到旧港。\n第二章 录音\n她听见父亲的声音。' > /tmp/mangadock-novel.txt
+curl -X POST http://localhost:8000/projects \
+  -F 'provider_id=1' \
+  -F 'file=@/tmp/mangadock-novel.txt;type=text/plain'
+
+# 3. 替换实际项目 id，轮询状态和资产
+curl http://localhost:8000/projects/1/status
+curl http://localhost:8000/projects/1/outline
+curl http://localhost:8000/projects/1/script
 ```
 
-数据库只保存 `api_key_env` 的名称。密钥值只放在环境变量中，不会通过 API 返回。
+前端打开 `http://localhost:5173/projects/1` 可查看时间线、角色、爽点横条和分场剧本。默认 Fake 产出两集合法资产，不访问真实模型。
+
+## 使用真实模型
+
+在 `.env` 设置：
+
+```dotenv
+MANGADOCK_LLM_MODE=live
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=your-real-key
+OPENAI_MODEL=your-model
+```
+
+然后重启 worker。数据库只保存 `api_key_env` 的名称，密钥值仅来自 worker 环境变量，不会通过 API 返回。`MANGADOCK_MAX_NOVEL_CHARS` 默认 120000，超出后明确返回 422，不静默截断。
+
+## 项目 API
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| POST | `/projects` | multipart 上传 file 和 provider_id |
+| GET | `/projects` | 项目列表 |
+| GET | `/projects/{id}` | 项目详情与 Novel |
+| GET | `/projects/{id}/status` | 阶段状态和子任务进度 |
+| GET | `/projects/{id}/outline` | Outline JSON |
+| GET | `/projects/{id}/script` | Script JSON |
+| POST | `/projects/{id}/stages/{stage}/retry` | 重试 failed 的 outline 或 script |
+
+上传解析错误包括不支持格式、超过 20MB、损坏文件、加密 PDF、空文件、非法 UTF-8 和超长文本。Outline 自动重试一次后仍失败会标记人工处理；前端可手动重试失败阶段。
 
 ## 本地测试
 
@@ -87,11 +115,13 @@ curl -X POST http://localhost:8000/api/v1/llm-providers/ \
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -e './packages/core[test]'
 pip install -e './packages/providers[test]'
+pip install -e './packages/persistence[test]'
+pip install -e './packages/core[test]'
 pip install -e './apps/api[test]'
 pip install -e './apps/worker[test]'
 
+cd packages/persistence && pytest && cd ../..
 cd packages/core && pytest && cd ../..
 cd packages/providers && pytest && cd ../..
 cd apps/api && pytest && cd ../..
@@ -103,27 +133,15 @@ npm run test
 npm run build
 ```
 
-Provider 测试使用 respx mock HTTP，不会访问真实模型 API。core 和 providers 的覆盖率门槛均为 100%。
-
-## 全栈验证
-
-```bash
-docker compose config --quiet
-docker compose up --build -d
-docker compose ps
-curl http://localhost:8000/healthz
-curl http://localhost:8000/api/v1/llm-providers/
-curl http://localhost:5173/
-
-docker compose exec -T worker python -c \
-  'from mangadock_worker.tasks import ping; result = ping.delay(); assert result.get(timeout=15) == "pong"; print("worker: pong")'
-```
+OpenAI 兼容测试使用 respx，管线使用 FakeLLMProvider，均不访问真实模型。core 和 providers 的覆盖率门槛均为 100%。
 
 ## 设计文档
 
 - [Provider 接口设计 ADR](docs/decisions/0001-llm-provider-abstraction.md)
+- [Outline/Script schema ADR](docs/decisions/0002-outline-script-schema.md)
 - [阶段一设计](docs/superpowers/specs/2026-10-30-stage-one-foundation-design.md)
+- [阶段二设计](docs/superpowers/specs/2026-10-30-stage-two-novel-script-pipeline-design.md)
 
 ## 当前边界
 
-本阶段使用应用启动时自动建表，尚未引入数据库迁移、认证、生产级密钥管理、模型重试或业务管线。许可证为 [MIT](LICENSE)。
+尚未实现角色图片、分镜、视频、TTS、认证、多租户和生产级密钥管理。数据库仍使用启动时自动建表，尚未引入 Alembic；20MB 以上或超过字符上限的长小说需要后续分章摘要架构。许可证为 [MIT](LICENSE)。

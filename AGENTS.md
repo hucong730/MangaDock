@@ -11,6 +11,7 @@
 - apps/web/ — React + Vite + TS 前端
 - packages/core/ — 管线核心：纯 Python，无框架依赖，必须可单测
 - packages/providers/ — OpenAI 兼容 / Anthropic / ComfyUI 等实现
+- packages/persistence/ — API 与 worker 共享的 SQLAlchemy 模型与异步 session
 - docs/decisions/ — 架构决策记录（ADR）
 
 ## 常用命令
@@ -19,6 +20,7 @@
 - Worker 测试：cd apps/worker && pytest
 - 核心包测试：cd packages/core && pytest
 - Provider 测试：cd packages/providers && pytest
+- 持久化包测试：cd packages/persistence && pytest
 - 前端测试：cd apps/web && npm run test
 - 前端构建：cd apps/web && npm run build
 
