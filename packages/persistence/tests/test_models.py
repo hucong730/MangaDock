@@ -11,6 +11,8 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 from mangadock_persistence.database import Base
 from mangadock_persistence.models import (
     LLMProviderRecord,
+    ProjectProviderRouteRecord,
+    ProviderCapabilityRecord,
     ProjectEpisodeRecord,
     ProjectRecord,
     ProjectStageRecord,
@@ -110,4 +112,66 @@ async def test_episode_number_is_unique_per_project() -> None:
         connection.add(ProjectEpisodeRecord(project_id=project.id, episode=1))
         with pytest.raises(IntegrityError):
             await connection.commit()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_provider_capabilities_and_project_routes_are_unique() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        provider = LLMProviderRecord(
+            name="fake",
+            base_url="https://api.example.com/v1",
+            model="fake-model",
+            api_key_env="OPENAI_API_KEY",
+        )
+        session.add(provider)
+        await session.flush()
+        session.add_all(
+            [
+                ProviderCapabilityRecord(
+                    provider_id=provider.id,
+                    capability="script",
+                ),
+                ProviderCapabilityRecord(
+                    provider_id=provider.id,
+                    capability="script",
+                ),
+            ]
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+        project = ProjectRecord(
+            title="旧港",
+            source_filename="harbor.txt",
+            source_media_type="text/plain",
+            provider_id=provider.id,
+            novel_json={"title": "旧港", "chapters": []},
+        )
+        session.add(project)
+        await session.flush()
+        session.add_all(
+            [
+                ProjectProviderRouteRecord(
+                    project_id=project.id,
+                    role="script",
+                    provider_id=provider.id,
+                ),
+                ProjectProviderRouteRecord(
+                    project_id=project.id,
+                    role="script",
+                    provider_id=provider.id,
+                ),
+            ]
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
     await engine.dispose()

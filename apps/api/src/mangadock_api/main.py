@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from mangadock_api.database import Base, engine, get_db
 from mangadock_api import models
@@ -12,10 +12,26 @@ from mangadock_api.routers.providers import router as providers_router
 from mangadock_api.routers.projects import router as projects_router
 
 
+async def ensure_provider_capabilities(connection: AsyncConnection) -> None:
+    await connection.execute(
+        text(
+            """
+            INSERT INTO provider_capabilities (provider_id, capability)
+            SELECT id, 'script' FROM llm_providers
+            WHERE NOT EXISTS (
+                SELECT 1 FROM provider_capabilities
+                WHERE provider_capabilities.provider_id = llm_providers.id
+            )
+            """
+        )
+    )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await ensure_provider_capabilities(connection)
     yield
 
 

@@ -10,6 +10,18 @@ class LLMProviderBase(BaseModel):
     model: str = Field(min_length=1, max_length=255)
     api_key_env: str = Field(pattern=r"^[A-Z_][A-Z0-9_]*$", max_length=255)
     enabled: bool = True
+    capabilities: list[str] = Field(default_factory=lambda: ["script"])
+
+    @field_validator("capabilities")
+    @classmethod
+    def validate_capabilities(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("Capabilities must not be empty")
+        if len(value) != len(set(value)):
+            raise ValueError("Capabilities must be unique")
+        if any(capability not in {"script", "image", "video"} for capability in value):
+            raise ValueError("Unsupported provider capability")
+        return value
 
     @field_validator("name", "model")
     @classmethod
@@ -34,6 +46,20 @@ class LLMProviderUpdate(BaseModel):
         max_length=255,
     )
     enabled: Optional[bool] = None
+    capabilities: Optional[list[str]] = None
+
+    @field_validator("capabilities")
+    @classmethod
+    def validate_capabilities(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return value
+        if not value:
+            raise ValueError("Capabilities must not be empty")
+        if len(value) != len(set(value)):
+            raise ValueError("Capabilities must be unique")
+        if any(capability not in {"script", "image", "video"} for capability in value):
+            raise ValueError("Unsupported provider capability")
+        return value
 
     @field_validator("name", "model")
     @classmethod
@@ -60,6 +86,7 @@ class LLMProviderRead(BaseModel):
     model: str
     api_key_env: str
     enabled: bool
+    capabilities: list[str]
     created_at: datetime
     updated_at: datetime
 

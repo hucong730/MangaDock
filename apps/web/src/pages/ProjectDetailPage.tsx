@@ -5,13 +5,14 @@ import {
   fetchOutline,
   fetchProject,
   fetchProjectStatus,
+  fetchProviders,
   fetchScript,
   retryStage,
 } from "../api";
 import OutlineView from "../components/OutlineView";
 import ScriptView from "../components/ScriptView";
 import StatusTimeline from "../components/StatusTimeline";
-import type { Outline, ProjectStatus, Script } from "../types";
+import type { LLMProvider, Outline, ProjectStatus, ProviderRoute, Script } from "../types";
 
 function ProjectDetailPage() {
   const { id: rawId } = useParams();
@@ -20,13 +21,23 @@ function ProjectDetailPage() {
   const [status, setStatus] = useState<ProjectStatus | null>(null);
   const [outline, setOutline] = useState<Outline | null>(null);
   const [script, setScript] = useState<Script | null>(null);
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [routes, setRoutes] = useState<ProviderRoute[]>([]);
+  const [scriptProviderId, setScriptProviderId] = useState<number>();
   const [error, setError] = useState("");
   const [retryVersion, setRetryVersion] = useState(0);
 
   useEffect(() => {
     fetchProject(projectId)
-      .then((project) => setTitle(project.title))
+      .then((project) => {
+        setTitle(project.title);
+        setRoutes(project.provider_routes || []);
+        setScriptProviderId(project.provider_id);
+      })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "项目加载失败"));
+    fetchProviders()
+      .then(setProviders)
+      .catch(() => setProviders([]));
   }, [projectId]);
 
   useEffect(() => {
@@ -83,6 +94,12 @@ function ProjectDetailPage() {
     }
   }
 
+  const routeByRole = new Map(routes.map((route) => [route.role, route.provider_id]));
+  if (!routeByRole.has("script") && scriptProviderId) {
+    routeByRole.set("script", scriptProviderId);
+  }
+  const roleLabels = { script: "剧本", image: "图像", video: "视频" } as const;
+
   return (
     <main className="page-shell">
       <Link to="/" className="back-link">← 返回项目列表</Link>
@@ -91,6 +108,24 @@ function ProjectDetailPage() {
         <h1>{title}</h1>
       </header>
       {error && <p role="alert" className="error-message">{error}</p>}
+      <section className="panel">
+        <h2>模型协作</h2>
+        <div className="model-collaboration">
+          {Object.entries(roleLabels).map(([role, label], index) => {
+            const provider = providers.find(
+              (item) => item.id === routeByRole.get(role as keyof typeof roleLabels),
+            );
+            return (
+              <div key={role} className="model-route">
+                {index > 0 && <span className="route-arrow">→</span>}
+                <span className={`capability-badge ${role}`}>{label}</span>
+                <strong>{provider ? `${provider.name} · ${provider.model}` : "未配置"}</strong>
+              </div>
+            );
+          })}
+        </div>
+        <p className="form-hint">剧本模型用于当前阶段；图像与视频模型将在后续阶段使用。</p>
+      </section>
       <section className="panel">
         <h2>生成进度</h2>
         {status ? (

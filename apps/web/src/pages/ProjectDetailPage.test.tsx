@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   fetchProject: vi.fn(),
+  fetchProviders: vi.fn(),
   fetchProjectStatus: vi.fn(),
   fetchOutline: vi.fn(),
   fetchScript: vi.fn(),
@@ -109,7 +110,21 @@ function renderPage() {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  api.fetchProject.mockResolvedValue({ id: 7, title: "旧港" });
+  api.fetchProject.mockResolvedValue({
+    id: 7,
+    title: "旧港",
+    provider_id: 1,
+    provider_routes: [
+      { role: "script", provider_id: 1 },
+      { role: "image", provider_id: 2 },
+      { role: "video", provider_id: 3 },
+    ],
+  });
+  api.fetchProviders.mockResolvedValue([
+    { id: 1, name: "剧本专用", model: "script-pro", capabilities: ["script"] },
+    { id: 2, name: "图像专用", model: "image-plus", capabilities: ["image"] },
+    { id: 3, name: "视频专用", model: "video-max", capabilities: ["video"] },
+  ]);
   api.fetchOutline.mockResolvedValue(outline);
   api.fetchScript.mockResolvedValue(script);
   api.retryStage.mockResolvedValue({ project_id: 7, stage: "script", status: "pending" });
@@ -142,6 +157,10 @@ describe("ProjectDetailPage", () => {
     expect(screen.getByText("林夏按下录音笔。")).toBeInTheDocument();
     expect(screen.getByText("你在说谎。")).toBeInTheDocument();
     expect(screen.getByText("6 秒")).toBeInTheDocument();
+    expect(screen.getByText("模型协作")).toBeInTheDocument();
+    expect(screen.getByText(/剧本专用/)).toBeInTheDocument();
+    expect(screen.getByText(/图像专用/)).toBeInTheDocument();
+    expect(screen.getByText(/视频专用/)).toBeInTheDocument();
     expect(api.fetchProjectStatus).toHaveBeenCalledTimes(2);
 
     await act(async () => {
@@ -198,5 +217,23 @@ describe("ProjectDetailPage", () => {
     });
     expect(screen.getByText("你在说谎。")).toBeInTheDocument();
     expect(api.fetchProjectStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the legacy script provider without route or capability fields", async () => {
+    api.fetchProject.mockResolvedValue({
+      id: 7,
+      title: "旧项目",
+      provider_id: 1,
+      provider_routes: [],
+    });
+    api.fetchProviders.mockResolvedValue([
+      { id: 1, name: "旧剧本模型", model: "legacy-script" },
+    ]);
+    api.fetchProjectStatus.mockResolvedValue(status("done", "done"));
+
+    renderPage();
+
+    expect(await screen.findByText(/旧剧本模型/)).toBeInTheDocument();
+    expect(screen.getByText(/legacy-script/)).toBeInTheDocument();
   });
 });

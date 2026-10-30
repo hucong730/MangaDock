@@ -7,6 +7,7 @@ from mangadock_api.database import get_db
 from mangadock_api.models import (
     LLMProviderRecord,
     ProjectEpisodeRecord,
+    ProjectProviderRouteRecord,
     ProjectRecord,
     ProjectStageRecord,
 )
@@ -14,13 +15,15 @@ from mangadock_api.project_schemas import (
     ProjectDetail,
     ProjectStatus,
     ProjectSummary,
+    ProviderRouteRead,
     RetryResponse,
     StageRead,
 )
+from mangadock_api.routers.providers import get_capabilities
 from mangadock_api.queue import enqueue_task
 from mangadock_core.parsing import NovelParseError, parse_novel
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
@@ -47,9 +50,44 @@ def stage_read(stage: ProjectStageRecord) -> StageRead:
     return StageRead.model_validate(stage)
 
 
+async def get_routes(
+    session: AsyncSession,
+    project_id: int,
+) -> list[ProjectProviderRouteRecord]:
+    result = await session.scalars(
+        select(ProjectProviderRouteRecord)
+        .where(ProjectProviderRouteRecord.project_id == project_id)
+        .order_by(ProjectProviderRouteRecord.id)
+    )
+    return list(result.all())
+
+
+async def validate_route_provider(
+    session: AsyncSession,
+    provider_id: int,
+    role: str,
+) -> None:
+    provider = await session.get(
+        LLMProviderRecord,
+        provider_id,
+        with_for_update=True,
+    )
+    if provider is None:
+        raise HTTPException(status_code=404, detail="Provider 不存在")
+    if not provider.enabled:
+        raise HTTPException(status_code=409, detail="Provider 已停用")
+    capabilities = await get_capabilities(session, provider_id)
+    if role not in capabilities:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Provider 不具备 {role} 能力",
+        )
+
+
 def project_summary(
     project: ProjectRecord,
     stages: list[ProjectStageRecord],
+    routes: list[ProjectProviderRouteRecord],
 ) -> ProjectSummary:
     return ProjectSummary(
         id=project.id,
@@ -59,6 +97,7 @@ def project_summary(
         provider_id=project.provider_id,
         created_at=project.created_at,
         stages=[stage_read(stage) for stage in stages],
+        provider_routes=[ProviderRouteRead.model_validate(route) for route in routes],
     )
 
 
@@ -67,8 +106,9 @@ async def project_detail(
     project: ProjectRecord,
 ) -> ProjectDetail:
     stages = await get_stages(session, project.id)
+    routes = await get_routes(session, project.id)
     return ProjectDetail(
-        **project_summary(project, stages).model_dump(),
+        **project_summary(project, stages, routes).model_dump(),
         novel_json=project.novel_json,
     )
 
@@ -76,6 +116,8 @@ async def project_detail(
 @router.post("", response_model=ProjectDetail, status_code=201)
 async def create_project(
     provider_id: int = Form(...),
+    image_provider_id: int | None = Form(None),
+    video_provider_id: int | None = Form(None),
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db),
 ) -> ProjectDetail:
@@ -84,11 +126,13 @@ async def create_project(
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="文件大小不能超过 20MB")
 
-    provider = await session.get(LLMProviderRecord, provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail="Provider 不存在")
-    if not provider.enabled:
-        raise HTTPException(status_code=409, detail="Provider 已停用")
+    route_requests = [("script", provider_id)]
+    if image_provider_id is not None:
+        route_requests.append(("image", image_provider_id))
+    if video_provider_id is not None:
+        route_requests.append(("video", video_provider_id))
+    for role, route_provider_id in sorted(route_requests, key=lambda item: item[1]):
+        await validate_route_provider(session, route_provider_id, role)
 
     try:
         novel = parse_novel(file.filename or "novel", content)
@@ -112,6 +156,29 @@ async def create_project(
     )
     session.add(project)
     await session.flush()
+    session.add(
+        ProjectProviderRouteRecord(
+            project_id=project.id,
+            role="script",
+            provider_id=provider_id,
+        )
+    )
+    if image_provider_id is not None:
+        session.add(
+            ProjectProviderRouteRecord(
+                project_id=project.id,
+                role="image",
+                provider_id=image_provider_id,
+            )
+        )
+    if video_provider_id is not None:
+        session.add(
+            ProjectProviderRouteRecord(
+                project_id=project.id,
+                role="video",
+                provider_id=video_provider_id,
+            )
+        )
     outline_stage = ProjectStageRecord(
         project_id=project.id,
         stage="outline",
@@ -147,7 +214,8 @@ async def list_projects(
     summaries = []
     for project in projects:
         stages = await get_stages(session, project.id)
-        summaries.append(project_summary(project, stages))
+        routes = await get_routes(session, project.id)
+        summaries.append(project_summary(project, stages, routes))
     return summaries
 
 

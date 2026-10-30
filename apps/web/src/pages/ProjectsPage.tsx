@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { fetchHealth, fetchProjects, fetchProviders } from "../api";
+import ProviderForm from "../components/ProviderForm";
 import ProjectUpload from "../components/ProjectUpload";
 import type { HealthResponse, LLMProvider, ProjectSummary } from "../types";
 
@@ -88,18 +89,28 @@ function ProjectsPage() {
       </section>
 
       <section className="panel" aria-labelledby="providers-heading">
-        <div className="section-heading"><h2 id="providers-heading">LLM Providers</h2></div>
+        <div className="section-heading"><h2 id="providers-heading">模型 Provider</h2></div>
+        {providers.status === "success" && (
+          <ProviderForm
+            onCreated={(provider) =>
+              setProviders({ status: "success", data: [...providers.data, provider] })
+            }
+          />
+        )}
         {providers.status === "success" && providers.data.length === 0 && (
           <div className="empty-state"><strong>暂未配置 Provider</strong></div>
         )}
         {providers.status === "success" && providers.data.length > 0 && (
           <div className="table-wrapper">
             <table>
-              <thead><tr><th>名称</th><th>Base URL</th><th>模型</th><th>密钥环境变量</th><th>状态</th></tr></thead>
+              <thead><tr><th>名称</th><th>Base URL</th><th>模型</th><th>能力</th><th>密钥环境变量</th><th>状态</th></tr></thead>
               <tbody>
                 {providers.data.map((provider) => (
                   <tr key={provider.id}>
                     <td>{provider.name}</td><td>{provider.base_url}</td><td>{provider.model}</td>
+                    <td>{(provider.capabilities ?? ["script"]).map((capability) => (
+                      <span key={capability} className={`capability-badge ${capability}`}>{capability}</span>
+                    ))}</td>
                     <td><code>{provider.api_key_env}</code></td><td>{provider.enabled ? "已启用" : "已停用"}</td>
                   </tr>
                 ))}

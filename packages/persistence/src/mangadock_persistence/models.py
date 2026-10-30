@@ -92,3 +92,30 @@ class ProjectEpisodeRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ProviderCapabilityRecord(Base):
+    __tablename__ = "provider_capabilities"
+    __table_args__ = (
+        UniqueConstraint("provider_id", "capability", name="uq_provider_capability"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_id: Mapped[int] = mapped_column(
+        ForeignKey("llm_providers.id", ondelete="CASCADE"), index=True
+    )
+    capability: Mapped[str] = mapped_column(String(20))
+
+
+class ProjectProviderRouteRecord(Base):
+    __tablename__ = "project_provider_routes"
+    __table_args__ = (
+        UniqueConstraint("project_id", "role", name="uq_project_provider_role"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(20))
+    provider_id: Mapped[int] = mapped_column(ForeignKey("llm_providers.id"))

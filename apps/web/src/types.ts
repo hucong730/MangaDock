@@ -3,6 +3,8 @@ export interface HealthResponse {
   database: string;
 }
 
+export type ProviderCapability = "script" | "image" | "video";
+
 export interface LLMProvider {
   id: number;
   name: string;
@@ -10,8 +12,23 @@ export interface LLMProvider {
   model: string;
   api_key_env: string;
   enabled: boolean;
+  capabilities: ProviderCapability[];
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateProviderInput {
+  name: string;
+  base_url: string;
+  model: string;
+  api_key_env: string;
+  enabled: boolean;
+  capabilities: ProviderCapability[];
+}
+
+export interface ProviderRoute {
+  role: ProviderCapability;
+  provider_id: number;
 }
 
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -34,6 +51,7 @@ export interface ProjectSummary {
   provider_id: number;
   created_at: string;
   stages: ProjectStage[];
+  provider_routes: ProviderRoute[];
 }
 
 export interface ProjectDetail extends ProjectSummary {

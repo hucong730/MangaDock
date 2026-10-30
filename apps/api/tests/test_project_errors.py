@@ -17,7 +17,7 @@ async def test_rejects_unsupported_extension(
     provider_id = await create_provider(client)
 
     response = await client.post(
-        "/projects",
+        "/api/v1/projects",
         data={"provider_id": str(provider_id)},
         files={"file": ("novel.epub", b"content", "application/epub+zip")},
     )
@@ -44,7 +44,7 @@ async def test_upload_errors_are_specific(
     provider_id = await create_provider(client)
 
     response = await client.post(
-        "/projects",
+        "/api/v1/projects",
         data={"provider_id": str(provider_id)},
         files={"file": (filename, content, "application/octet-stream")},
     )
@@ -63,7 +63,7 @@ async def test_encrypted_pdf_error(client: AsyncClient, queue_mock: Mock) -> Non
     writer.write(output)
 
     response = await client.post(
-        "/projects",
+        "/api/v1/projects",
         data={"provider_id": str(provider_id)},
         files={"file": ("encrypted.pdf", output.getvalue(), "application/pdf")},
     )

@@ -15,6 +15,13 @@ class StageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProviderRouteRead(BaseModel):
+    role: str
+    provider_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProjectSummary(BaseModel):
     id: int
     title: str
@@ -23,6 +30,7 @@ class ProjectSummary(BaseModel):
     provider_id: int
     created_at: datetime
     stages: list[StageRead]
+    provider_routes: list[ProviderRouteRead]
 
 
 class ProjectDetail(ProjectSummary):

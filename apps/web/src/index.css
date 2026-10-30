@@ -155,7 +155,7 @@ code {
 
 .upload-form {
   display: grid;
-  grid-template-columns: 1.5fr 1fr auto;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 16px;
   align-items: end;
 }
@@ -197,6 +197,89 @@ button:disabled {
   margin: 0;
   color: #728078;
   font-size: 12px;
+}
+
+.provider-form {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e5eae2;
+}
+
+.provider-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.provider-form label {
+  display: grid;
+  gap: 6px;
+  color: #52665a;
+  font-size: 13px;
+}
+
+.provider-form input {
+  padding: 10px;
+  border: 1px solid #cfd9cf;
+  border-radius: 8px;
+}
+
+.capability-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+}
+
+.capability-options label,
+.capability-options legend {
+  color: #52665a;
+  font-size: 13px;
+}
+
+.capability-badge {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.capability-badge.script {
+  color: #286a47;
+  background: #e3f2e8;
+}
+
+.capability-badge.image {
+  color: #70508e;
+  background: #eee6f5;
+}
+
+.capability-badge.video {
+  color: #9b5c31;
+  background: #f7ebdf;
+}
+
+.model-collaboration {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.model-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.route-arrow {
+  margin-right: 10px;
+  color: #8a968e;
 }
 
 .project-list {

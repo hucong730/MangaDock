@@ -1,10 +1,15 @@
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from mangadock_api.models import ProjectEpisodeRecord, ProjectRecord, ProjectStageRecord
+from mangadock_api.models import (
+    LLMProviderRecord,
+    ProjectEpisodeRecord,
+    ProjectRecord,
+    ProjectStageRecord,
+)
 from mangadock_api.routers import projects
 
 
@@ -15,17 +20,21 @@ def queue_mock(monkeypatch: pytest.MonkeyPatch) -> Mock:
     return mock
 
 
-async def create_provider(client: AsyncClient, enabled: bool = True) -> int:
-    response = await client.post(
-        "/api/v1/llm-providers/",
-        json={
-            "name": f"provider-{enabled}",
-            "base_url": "https://api.example.com/v1",
-            "model": "fake",
-            "api_key_env": "OPENAI_API_KEY",
-            "enabled": enabled,
-        },
-    )
+async def create_provider(
+    client: AsyncClient,
+    enabled: bool = True,
+    capabilities: list[str] | None = None,
+) -> int:
+    body = {
+        "name": f"provider-{enabled}-{capabilities}",
+        "base_url": "https://api.example.com/v1",
+        "model": "fake",
+        "api_key_env": "OPENAI_API_KEY",
+        "enabled": enabled,
+    }
+    if capabilities is not None:
+        body["capabilities"] = capabilities
+    response = await client.post("/api/v1/llm-providers/", json=body)
     return response.json()["id"]
 
 
@@ -35,7 +44,7 @@ async def upload_txt(
     content: bytes = "第一章 归来\n林夏回到旧港。".encode(),
 ):
     return await client.post(
-        "/projects",
+        "/api/v1/projects",
         data={"provider_id": str(provider_id)},
         files={"file": ("novel.txt", content, "text/plain")},
     )
@@ -55,29 +64,32 @@ async def test_upload_list_status_and_assets(
     project = created.json()
     assert project["title"] == "novel"
     assert project["novel_json"]["chapters"][0]["title"] == "第一章 归来"
+    assert project["provider_routes"] == [
+        {"role": "script", "provider_id": provider_id}
+    ]
     queue_mock.assert_called_once_with(
         "mangadock_worker.tasks.stage_outline",
         project["id"],
     )
 
-    listed = await client.get("/projects")
+    listed = await client.get("/api/v1/projects")
     assert listed.status_code == 200
     assert len(listed.json()) == 1
     assert listed.json()[0]["id"] == project["id"]
 
-    detail = await client.get(f"/projects/{project['id']}")
+    detail = await client.get(f"/api/v1/projects/{project['id']}")
     assert detail.status_code == 200
     assert detail.json()["novel_json"]["title"] == "novel"
 
-    status = await client.get(f"/projects/{project['id']}/status")
+    status = await client.get(f"/api/v1/projects/{project['id']}/status")
     assert status.status_code == 200
     stages = {stage["stage"]: stage for stage in status.json()["stages"]}
     assert stages["upload"]["status"] == "done"
     assert stages["outline"]["status"] == "pending"
     assert stages["script"]["status"] == "pending"
 
-    assert (await client.get(f"/projects/{project['id']}/outline")).status_code == 409
-    assert (await client.get(f"/projects/{project['id']}/script")).status_code == 409
+    assert (await client.get(f"/api/v1/projects/{project['id']}/outline")).status_code == 409
+    assert (await client.get(f"/api/v1/projects/{project['id']}/script")).status_code == 409
 
     async with session_factory() as session:
         record = await session.get(ProjectRecord, project["id"])
@@ -85,8 +97,8 @@ async def test_upload_list_status_and_assets(
         record.script_json = {"episodes": ["ready-script"]}
         await session.commit()
 
-    outline = await client.get(f"/projects/{project['id']}/outline")
-    script = await client.get(f"/projects/{project['id']}/script")
+    outline = await client.get(f"/api/v1/projects/{project['id']}/outline")
+    script = await client.get(f"/api/v1/projects/{project['id']}/script")
     assert outline.json() == {"synopsis": "ready-outline"}
     assert script.json() == {"episodes": ["ready-script"]}
 
@@ -107,13 +119,14 @@ async def test_provider_is_required_and_enabled(
 @pytest.mark.asyncio
 async def test_missing_project_routes_return_404(client: AsyncClient) -> None:
     for path in (
-        "/projects/999",
-        "/projects/999/status",
-        "/projects/999/outline",
-        "/projects/999/script",
+        "/api/v1/projects/999",
+        "/api/v1/projects/999/status",
+        "/api/v1/projects/999/outline",
+        "/api/v1/projects/999/script",
     ):
         response = await client.get(path)
         assert response.status_code == 404
+    assert (await client.get("/projects")).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -147,10 +160,10 @@ async def test_outline_retry_resets_downstream(
         )
         await session.commit()
 
-    rejected = await client.post(f"/projects/{project['id']}/stages/video/retry")
+    rejected = await client.post(f"/api/v1/projects/{project['id']}/stages/video/retry")
     assert rejected.status_code == 422
 
-    response = await client.post(f"/projects/{project['id']}/stages/outline/retry")
+    response = await client.post(f"/api/v1/projects/{project['id']}/stages/outline/retry")
 
     assert response.status_code == 202
     queue_mock.assert_called_once_with(
@@ -183,7 +196,7 @@ async def test_script_retry_requires_failed_stage_and_resets_episodes(
     project = (await upload_txt(client, provider_id)).json()
     queue_mock.reset_mock()
 
-    pending = await client.post(f"/projects/{project['id']}/stages/script/retry")
+    pending = await client.post(f"/api/v1/projects/{project['id']}/stages/script/retry")
     assert pending.status_code == 409
 
     async with session_factory() as session:
@@ -209,7 +222,7 @@ async def test_script_retry_requires_failed_stage_and_resets_episodes(
         )
         await session.commit()
 
-    response = await client.post(f"/projects/{project['id']}/stages/script/retry")
+    response = await client.post(f"/api/v1/projects/{project['id']}/stages/script/retry")
 
     assert response.status_code == 202
     queue_mock.assert_called_once_with(
@@ -228,7 +241,7 @@ async def test_script_retry_requires_failed_stage_and_resets_episodes(
     assert episode.error is None
     assert episode.payload_json is None
     assert record.script_json is None
-    assert (await client.get(f"/projects/{project['id']}/script")).status_code == 409
+    assert (await client.get(f"/api/v1/projects/{project['id']}/script")).status_code == 409
 
 
 @pytest.mark.asyncio
@@ -243,7 +256,7 @@ async def test_enqueue_failure_keeps_retryable_project(
 
     assert created.status_code == 201
     project_id = created.json()["id"]
-    status = await client.get(f"/projects/{project_id}/status")
+    status = await client.get(f"/api/v1/projects/{project_id}/status")
     outline = next(
         stage for stage in status.json()["stages"] if stage["stage"] == "outline"
     )
@@ -252,7 +265,7 @@ async def test_enqueue_failure_keeps_retryable_project(
     assert "入队失败" in outline["error"]
 
     queue_mock.side_effect = None
-    retry = await client.post(f"/projects/{project_id}/stages/outline/retry")
+    retry = await client.post(f"/api/v1/projects/{project_id}/stages/outline/retry")
     assert retry.status_code == 202
 
 
@@ -269,4 +282,75 @@ async def test_provider_used_by_project_cannot_be_deleted(
     assert response.status_code == 409
     assert "项目使用" in response.json()["detail"]
     assert (await client.get(f"/api/v1/llm-providers/{provider_id}")).status_code == 200
-    assert (await client.get(f"/projects/{project['id']}")).status_code == 200
+    assert (await client.get(f"/api/v1/projects/{project['id']}")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_project_saves_three_provider_routes(
+    client: AsyncClient,
+    queue_mock: Mock,
+) -> None:
+    script_id = await create_provider(client, capabilities=["script"])
+    image_id = await create_provider(client, capabilities=["image"])
+    video_id = await create_provider(client, capabilities=["video"])
+
+    response = await client.post(
+        "/api/v1/projects",
+        data={
+            "provider_id": str(script_id),
+            "image_provider_id": str(image_id),
+            "video_provider_id": str(video_id),
+        },
+        files={"file": ("novel.txt", "第一章\n内容".encode(), "text/plain")},
+    )
+
+    assert response.status_code == 201
+    routes = {
+        route["role"]: route["provider_id"]
+        for route in response.json()["provider_routes"]
+    }
+    assert routes == {
+        "script": script_id,
+        "image": image_id,
+        "video": video_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_project_rejects_provider_without_required_capability(
+    client: AsyncClient,
+    queue_mock: Mock,
+) -> None:
+    script_id = await create_provider(client, capabilities=["script"])
+    image_id = await create_provider(client, capabilities=["image"])
+
+    response = await client.post(
+        "/api/v1/projects",
+        data={"provider_id": str(script_id), "image_provider_id": str(script_id)},
+        files={"file": ("novel.txt", "第一章\n内容".encode(), "text/plain")},
+    )
+
+    assert response.status_code == 409
+    assert "image" in response.json()["detail"]
+    assert image_id != script_id
+
+
+@pytest.mark.asyncio
+async def test_route_validation_locks_provider_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock()
+    session.get.return_value = LLMProviderRecord(enabled=True)
+    monkeypatch.setattr(
+        projects,
+        "get_capabilities",
+        AsyncMock(return_value=["script"]),
+    )
+
+    await projects.validate_route_provider(session, 1, "script")
+
+    session.get.assert_called_once_with(
+        LLMProviderRecord,
+        1,
+        with_for_update=True,
+    )

@@ -69,17 +69,49 @@ curl -X POST http://localhost:8000/api/v1/llm-providers/ \
 
 # 2. 准备小说并上传（将返回的 Provider id 替换到 provider_id）
 printf '第一章 归来\n林夏回到旧港。\n第二章 录音\n她听见父亲的声音。' > /tmp/mangadock-novel.txt
-curl -X POST http://localhost:8000/projects \
+curl -X POST http://localhost:8000/api/v1/projects \
   -F 'provider_id=1' \
   -F 'file=@/tmp/mangadock-novel.txt;type=text/plain'
 
 # 3. 替换实际项目 id，轮询状态和资产
-curl http://localhost:8000/projects/1/status
-curl http://localhost:8000/projects/1/outline
-curl http://localhost:8000/projects/1/script
+curl http://localhost:8000/api/v1/projects/1/status
+curl http://localhost:8000/api/v1/projects/1/outline
+curl http://localhost:8000/api/v1/projects/1/script
 ```
 
 前端打开 `http://localhost:5173/projects/1` 可查看时间线、角色、爽点横条和分场剧本。默认 Fake 产出两集合法资产，不访问真实模型。
+
+## 多模型协作配置
+
+Provider 支持 `script`、`image`、`video` 三种能力，缺省为 `script`。每个 Provider 独立配置 `base_url`、`model` 和 `api_key_env`，可以混用不同厂商、网关和密钥。前端“模型 Provider”区域可直接创建多能力 Provider。
+
+示例分别创建三类 Provider（密钥只保存环境变量名）：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/llm-providers/ \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"script-pro","base_url":"https://llm.example.com/v1","model":"script-pro","api_key_env":"SCRIPT_API_KEY","capabilities":["script"],"enabled":true}'
+
+curl -X POST http://localhost:8000/api/v1/llm-providers/ \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"image-plus","base_url":"https://image.example.com/v1","model":"image-plus","api_key_env":"IMAGE_API_KEY","capabilities":["image"],"enabled":true}'
+
+curl -X POST http://localhost:8000/api/v1/llm-providers/ \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"video-max","base_url":"https://video.example.com/v1","model":"video-max","api_key_env":"VIDEO_API_KEY","capabilities":["video"],"enabled":true}'
+```
+
+创建项目时可分别指定三个 Provider；图像与视频可选，剧本必选：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/projects \
+  -F 'provider_id=1' \
+  -F 'image_provider_id=2' \
+  -F 'video_provider_id=3' \
+  -F 'file=@/tmp/mangadock-novel.txt;type=text/plain'
+```
+
+项目详情会显示“剧本 → 图像 → 视频”的模型协作配置。图像和视频配置供后续阶段使用，本阶段尚未实现媒体生成。已被引用的 Provider 不能删除、停用或移除使用中的能力。
 
 ## 使用真实模型
 
@@ -98,13 +130,13 @@ OPENAI_MODEL=your-model
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| POST | `/projects` | multipart 上传 file 和 provider_id |
-| GET | `/projects` | 项目列表 |
-| GET | `/projects/{id}` | 项目详情与 Novel |
-| GET | `/projects/{id}/status` | 阶段状态和子任务进度 |
-| GET | `/projects/{id}/outline` | Outline JSON |
-| GET | `/projects/{id}/script` | Script JSON |
-| POST | `/projects/{id}/stages/{stage}/retry` | 重试 failed 的 outline 或 script |
+| POST | `/api/v1/projects` | multipart 上传 file 和 provider_id |
+| GET | `/api/v1/projects` | 项目列表 |
+| GET | `/api/v1/projects/{id}` | 项目详情与 Novel |
+| GET | `/api/v1/projects/{id}/status` | 阶段状态和子任务进度 |
+| GET | `/api/v1/projects/{id}/outline` | Outline JSON |
+| GET | `/api/v1/projects/{id}/script` | Script JSON |
+| POST | `/api/v1/projects/{id}/stages/{stage}/retry` | 重试 failed 的 outline 或 script |
 
 上传解析错误包括不支持格式、超过 20MB、损坏文件、加密 PDF、空文件、非法 UTF-8 和超长文本。Outline 自动重试一次后仍失败会标记人工处理；前端可手动重试失败阶段。
 
@@ -139,6 +171,7 @@ OpenAI 兼容测试使用 respx，管线使用 FakeLLMProvider，均不访问真
 
 - [Provider 接口设计 ADR](docs/decisions/0001-llm-provider-abstraction.md)
 - [Outline/Script schema ADR](docs/decisions/0002-outline-script-schema.md)
+- [多模型能力路由 ADR](docs/decisions/0003-model-capability-routing.md)
 - [阶段一设计](docs/superpowers/specs/2026-10-30-stage-one-foundation-design.md)
 - [阶段二设计](docs/superpowers/specs/2026-10-30-stage-two-novel-script-pipeline-design.md)
 
