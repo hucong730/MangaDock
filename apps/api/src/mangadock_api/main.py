@@ -13,6 +13,7 @@ from mangadock_api.routers.assets import router as assets_router
 from mangadock_api.routers.characters import router as characters_router
 from mangadock_api.routers.projects import router as projects_router
 from mangadock_api.routers.storyboard import router as storyboard_router
+from mangadock_api.routers.video_providers import router as video_providers_router
 
 
 async def ensure_provider_capabilities(connection: AsyncConnection) -> None:
@@ -44,6 +45,7 @@ app.include_router(projects_router)
 app.include_router(characters_router)
 app.include_router(storyboard_router)
 app.include_router(assets_router)
+app.include_router(video_providers_router)
 
 
 @app.get("/healthz")

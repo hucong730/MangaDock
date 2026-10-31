@@ -7,7 +7,9 @@ from mangadock_persistence.models import (
     ProjectProviderRouteRecord,
     ProjectRecord,
     ProjectStageRecord,
+    ProjectVideoRouteRecord,
     ProviderCapabilityRecord,
+    VideoProviderRecord,
 )
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     "ProjectProviderRouteRecord",
     "ProjectRecord",
     "ProjectStageRecord",
+    "ProjectVideoRouteRecord",
     "ProviderCapabilityRecord",
+    "VideoProviderRecord",
 ]

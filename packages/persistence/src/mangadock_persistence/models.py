@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -189,4 +190,49 @@ class ProjectAssetRecord(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class VideoProviderRecord(Base):
+    __tablename__ = "video_providers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    base_url: Mapped[str] = mapped_column(String(2048))
+    model: Mapped[str] = mapped_column(String(255))
+    api_key_env: Mapped[str] = mapped_column(String(255))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    config_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProjectVideoRouteRecord(Base):
+    __tablename__ = "project_video_routes"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "episode",
+            "segment_index",
+            name="uq_project_video_route",
+        ),
+        CheckConstraint(
+            "(episode = 0 AND segment_index = 0) OR (episode > 0 AND segment_index > 0)",
+            name="ck_project_video_route_scope",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    episode: Mapped[int] = mapped_column(Integer)
+    segment_index: Mapped[int] = mapped_column(Integer)
+    video_provider_id: Mapped[int] = mapped_column(
+        ForeignKey("video_providers.id")
     )

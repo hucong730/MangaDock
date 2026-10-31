@@ -19,6 +19,8 @@ from mangadock_persistence.models import (
     ProjectEpisodeRecord,
     ProjectRecord,
     ProjectStageRecord,
+    ProjectVideoRouteRecord,
+    VideoProviderRecord,
 )
 
 
@@ -247,6 +249,79 @@ async def test_character_images_and_json_assets_track_state() -> None:
                 character_id=character.id,
                 label="front_full",
                 status="done",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_video_provider_routes_validate_scope_and_uniqueness() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        llm = LLMProviderRecord(
+            name="fake",
+            base_url="https://api.example.com/v1",
+            model="fake-model",
+            api_key_env="OPENAI_API_KEY",
+        )
+        video = VideoProviderRecord(
+            name="wan",
+            kind="wan",
+            base_url="http://localhost:8188",
+            model="wan2.2",
+            api_key_env="COMFYUI_API_KEY",
+        )
+        session.add_all([llm, video])
+        await session.flush()
+        project = ProjectRecord(
+            title="旧港",
+            source_filename="novel.txt",
+            source_media_type="text/plain",
+            provider_id=llm.id,
+            novel_json={"title": "旧港", "chapters": []},
+        )
+        session.add(project)
+        await session.flush()
+        session.add(
+            ProjectVideoRouteRecord(
+                project_id=project.id,
+                episode=0,
+                segment_index=0,
+                video_provider_id=video.id,
+            )
+        )
+        await session.commit()
+        project_id = project.id
+        video_provider_id = video.id
+        assert video.enabled is True
+        assert video.config_json == {}
+
+        session.add(
+            ProjectVideoRouteRecord(
+                project_id=project_id,
+                episode=0,
+                segment_index=0,
+                video_provider_id=video_provider_id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+        session.add(
+            ProjectVideoRouteRecord(
+                project_id=project_id,
+                episode=0,
+                segment_index=1,
+                video_provider_id=video_provider_id,
             )
         )
         with pytest.raises(IntegrityError):
