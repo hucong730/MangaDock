@@ -86,6 +86,20 @@ async def test_dubbing_generates_timed_audio_and_reuses_valid_asset(
 
 
 @pytest.mark.asyncio
+async def test_second_episode_dubbing_uses_valid_full_script(
+    project_factory,
+    tts_provider,
+) -> None:
+    project_id, session_factory = await prepare_project(project_factory)
+
+    assert await run_dubbing_stage(project_id, 2) is True
+
+    lines = (await asset(session_factory, project_id)).payload_json["episodes"][0]["lines"]
+    assert [line["line_id"] for line in lines] == ["2:1:2", "2:1:4"]
+    assert len(tts_provider.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_voice_profile_change_invalidates_dubbing(
     project_factory,
     tts_provider,

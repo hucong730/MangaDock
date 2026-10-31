@@ -53,14 +53,29 @@ def apply_dubbing_timing(
     return lines
 
 
-def validate_dubbing(value: dict, script: Script, board: Storyboard) -> Dubbing:
+def validate_dubbing(
+    value: dict,
+    script: Script,
+    board: Storyboard,
+    episode: int | None = None,
+) -> Dubbing:
     dubbing = Dubbing.model_validate(value)
+    board_episodes = (
+        [item for item in board.episodes if item.episode == episode]
+        if episode is not None
+        else board.episodes
+    )
+    script_episodes = (
+        [item for item in script.episodes if item.episode == episode]
+        if episode is not None
+        else script.episodes
+    )
     if [item.episode for item in dubbing.episodes] != [
-        item.episode for item in board.episodes
+        item.episode for item in board_episodes
     ]:
         raise ValueError("Dubbing must cover every storyboard episode")
     for dubbing_episode, board_episode, script_episode in zip(
-        dubbing.episodes, board.episodes, script.episodes
+        dubbing.episodes, board_episodes, script_episodes
     ):
         expected = [
             (ref.scene, ref.order)

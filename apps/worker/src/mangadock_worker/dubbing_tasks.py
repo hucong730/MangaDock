@@ -60,7 +60,7 @@ def valid_dubbing_episode(asset, episode: int, fingerprint: str, script, board) 
     if any(not (asset_root() / line["audio_path"]).is_file() for line in episode_asset["lines"]):
         return False
     try:
-        validate_dubbing({"episodes": [episode_asset]}, script, board)
+        validate_dubbing({"episodes": [episode_asset]}, script, board, episode)
     except ValueError:
         return False
     return True
@@ -88,8 +88,6 @@ async def run_dubbing_stage(project_id: int, episode: int) -> bool:
     storyboard = Storyboard.model_validate(storyboard_asset.payload_json)
     script_episode = next(item for item in script.episodes if item.episode == episode)
     board_episode = next(item for item in storyboard.episodes if item.episode == episode)
-    script_subset = Script(cast=script.cast, episodes=[script_episode])
-    board_subset = Storyboard(episodes=[board_episode])
     mode = os.getenv("MANGADOCK_TTS_MODE", "fake").lower()
     fingerprint = dubbing_fingerprint(script_episode, characters, mode)
     other_episodes = []
@@ -108,12 +106,12 @@ async def run_dubbing_stage(project_id: int, episode: int) -> bool:
         if existing and existing.get("source_fingerprint") == fingerprint:
             existing_lines = {line["line_id"]: line for line in existing["lines"]}
     if valid_dubbing_episode(
-        dubbing_asset, episode, fingerprint, script_subset, board_subset
+        dubbing_asset, episode, fingerprint, script, storyboard
     ):
         enqueue_render(project_id, episode)
         return True
 
-    lines = build_dubbing_plan(script_subset, board_episode, episode)
+    lines = build_dubbing_plan(script, board_episode, episode)
     output_dir = asset_output_dir(project_id, "audio", f"episode_{episode}")
     provider = tts_for_project(project_id, episode, output_dir)
     await set_stage(
