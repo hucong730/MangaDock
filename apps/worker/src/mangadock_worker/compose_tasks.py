@@ -102,6 +102,17 @@ async def run_compose_stage(project_id: int, episode: int) -> bool:
             srt,
             vtt,
         )
+        async with new_session() as session:
+            current_render = await get_project_asset(session, project_id, "render")
+            current_dubbing = await get_project_asset(session, project_id, "dubbing")
+        current_render_episode = next(
+            item for item in current_render.payload_json["episodes"] if item["episode"] == episode
+        )
+        current_dubbing_episode = next(
+            item for item in current_dubbing.payload_json["episodes"] if item["episode"] == episode
+        )
+        if compose_fingerprint(current_render_episode, current_dubbing_episode) != fingerprint:
+            raise ValueError("Compose inputs changed while generating")
         export = {
             "episode": episode,
             "status": "done",

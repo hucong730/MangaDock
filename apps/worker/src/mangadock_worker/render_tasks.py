@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import os
 
 from celery import chord, group
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from mangadock_core.fingerprints import dependency_fingerprint
 from mangadock_core.schemas import Render, Storyboard
 from mangadock_persistence.models import (
+    ProjectAssetRecord,
     ProjectVideoRouteRecord,
     VideoProviderRecord,
 )
@@ -90,7 +92,11 @@ def cut_fingerprint(cut, dubbing_lines, record, mode: str) -> str:
     )
 
 
-async def ensure_render_episode(project_id: int, episode: int):
+async def ensure_render_episode(
+    project_id: int,
+    episode: int,
+    only_cut: int | None = None,
+):
     async with new_session() as session:
         storyboard_asset = await get_project_asset(session, project_id, "storyboard")
         dubbing_asset = await get_project_asset(session, project_id, "dubbing")
@@ -135,6 +141,11 @@ async def ensure_render_episode(project_id: int, episode: int):
                     cut, dubbing_episode["lines"], record, video_mode()
                 )
                 previous = existing_cuts.get((segment.index, cut.index), {})
+                preserve_failed = (
+                    only_cut is not None
+                    and cut.index != only_cut
+                    and previous.get("status") == "failed"
+                )
                 reusable = (
                     previous.get("status") == "done"
                     and previous.get("source_fingerprint") == fingerprint
@@ -145,17 +156,19 @@ async def ensure_render_episode(project_id: int, episode: int):
                     {
                         "index": cut.index,
                         "duration_s": cut.duration_s,
-                        "status": "done" if reusable else "pending",
+                        "status": previous.get("status") if preserve_failed else "done" if reusable else "pending",
                         "attempt_count": previous.get("attempt_count", 0)
                         if previous.get("source_fingerprint") == fingerprint
                         else 0,
                         "provider_id": record.id if record is not None else None,
-                        "clip_path": previous.get("clip_path") if reusable else None,
+                        "clip_path": previous.get("clip_path")
+                        if preserve_failed or reusable
+                        else None,
                         "source_duration_s": previous.get("source_duration_s")
-                        if reusable
+                        if preserve_failed or reusable
                         else None,
                         "source_fingerprint": fingerprint,
-                        "error": None,
+                        "error": previous.get("error") if preserve_failed else None,
                     }
                 )
             segments.append({"index": segment.index, "cuts": cuts})
@@ -185,6 +198,81 @@ async def persist_render(project_id: int, payload: dict, status="running") -> No
     )
 
 
+async def persist_cut(
+    project_id: int,
+    episode: int,
+    segment_index: int,
+    cut_index: int,
+    values: dict,
+    dubbing_lines: list[dict],
+    expected_fingerprint: str | None = None,
+) -> bool:
+    valid = True
+    async with new_session() as session:
+        storyboard_asset = await session.scalar(
+            select(ProjectAssetRecord)
+            .where(
+                ProjectAssetRecord.project_id == project_id,
+                ProjectAssetRecord.kind == "storyboard",
+            )
+            .with_for_update()
+        )
+        asset = await get_project_asset(session, project_id, "render")
+        values = dict(values)
+        if expected_fingerprint is not None:
+            storyboard = Storyboard.model_validate(storyboard_asset.payload_json)
+            current_cut = next(
+                item
+                for board in storyboard.episodes
+                if board.episode == episode
+                for segment in board.segments
+                if segment.index == segment_index
+                for item in segment.cuts
+                if item.index == cut_index
+            )
+            record = await resolve_video_record(
+                session, project_id, episode, segment_index
+            )
+            current = cut_fingerprint(
+                current_cut, dubbing_lines, record, video_mode()
+            )
+            if current != expected_fingerprint:
+                valid = False
+                values.update(
+                    {
+                        "status": "outdated",
+                        "clip_path": None,
+                        "error": "Render inputs changed while generating",
+                    }
+                )
+        payload = copy.deepcopy(asset.payload_json)
+        target = next(
+            cut
+            for episode_asset in payload["episodes"]
+            if episode_asset["episode"] == episode
+            for segment in episode_asset["segments"]
+            if segment["index"] == segment_index
+            for cut in segment["cuts"]
+            if cut["index"] == cut_index
+        )
+        target.update(values)
+        await upsert_project_asset(session, project_id, "render", payload)
+    cuts = [
+        cut
+        for episode_asset in payload["episodes"]
+        for segment in episode_asset["segments"]
+        for cut in segment["cuts"]
+    ]
+    await set_stage(
+        project_id,
+        "render",
+        status="running",
+        completed_items=sum(cut["status"] == "done" for cut in cuts),
+        total_items=len(cuts),
+    )
+    return valid
+
+
 def provider_semaphore(record):
     key = record.id if record is not None else 0
     configured = record.config_json.get("max_concurrency", 2) if record is not None else 2
@@ -194,11 +282,16 @@ def provider_semaphore(record):
     return SEMAPHORES[key][1]
 
 
-async def run_render_segment(project_id: int, episode: int, segment_index: int) -> bool:
+async def run_render_segment(
+    project_id: int,
+    episode: int,
+    segment_index: int,
+    only_cut: int | None = None,
+) -> bool:
     await get_stage(project_id, "render")
     try:
         storyboard, dubbing_episode, payload = await ensure_render_episode(
-            project_id, episode
+            project_id, episode, only_cut
         )
     except ValueError as error:
         await set_stage(
@@ -243,48 +336,42 @@ async def run_render_segment(project_id: int, episode: int, segment_index: int) 
                         cut.duration_s,
                         record.config_json if record is not None else {},
                     )
-                async with new_session() as session:
-                    current_asset = await get_project_asset(session, project_id, "storyboard")
-                    current_board = Storyboard.model_validate(current_asset.payload_json)
-                    current_cut = next(
-                        item
-                        for episode_board in current_board.episodes
-                        if episode_board.episode == episode
-                        for segment in episode_board.segments
-                        if segment.index == segment_index
-                        for item in segment.cuts
-                        if item.index == cut.index
-                    )
-                    current_record = await resolve_video_record(
-                        session, project_id, episode, segment_index
-                    )
-                current_fingerprint = cut_fingerprint(
-                    current_cut, dubbing_episode["lines"], current_record, video_mode()
-                )
-                if current_fingerprint != fingerprint:
-                    render_clip["status"] = "outdated"
-                    render_clip["error"] = "Render inputs changed while generating"
-                    render_clip["clip_path"] = None
-                    async with persist_lock:
-                        await persist_render(project_id, payload)
-                    return False
                 render_clip["status"] = "done"
                 render_clip["clip_path"] = relative_asset_path(str(result.path))
                 render_clip["source_duration_s"] = result.source_duration_s
                 render_clip["error"] = None
                 async with persist_lock:
-                    await persist_render(project_id, payload)
-                return True
+                    return await persist_cut(
+                        project_id,
+                        episode,
+                        segment_index,
+                        cut.index,
+                        render_clip,
+                        dubbing_episode["lines"],
+                        fingerprint,
+                    )
             except (VideoProviderError, OSError, ValueError) as error:
                 render_clip["error"] = str(error)
         render_clip["status"] = "failed"
         render_clip["clip_path"] = None
         async with persist_lock:
-            await persist_render(project_id, payload)
+            await persist_cut(
+                project_id,
+                episode,
+                segment_index,
+                cut.index,
+                render_clip,
+                dubbing_episode["lines"],
+            )
         return False
 
+    targets = [
+        (cut, clip)
+        for cut, clip in zip(board_segment.cuts, render_segment["cuts"])
+        if only_cut is None or cut.index == only_cut
+    ]
     results = await asyncio.gather(
-        *(render_cut(cut, clip) for cut, clip in zip(board_segment.cuts, render_segment["cuts"]))
+        *(render_cut(cut, clip) for cut, clip in targets)
     )
     return all(results)
 
@@ -342,7 +429,7 @@ async def retry_render_cut(
         cut["attempt_count"] = 0
         cut["error"] = None
         await upsert_project_asset(session, project_id, "render", payload)
-    if not await run_render_segment(project_id, episode, segment_index):
+    if not await run_render_segment(project_id, episode, segment_index, cut_index):
         return False
     return await run_finish_render(project_id, episode)
 

@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
+from mangadock_providers.media import MediaToolError, probe_duration
 from mangadock_providers.video_base import VideoResult
 from mangadock_providers.video_exceptions import (
     VideoProviderAPIError,
@@ -128,9 +129,10 @@ class RemoteVideoClient:
         url: str,
         output_dir: str,
         headers: dict[str, str],
+        expected_duration_s: float | None = None,
     ) -> str:
         try:
-            response = await self._client.get(url, headers=headers)
+            response = await self._client.get(url)
         except httpx.HTTPError as error:
             raise VideoProviderTransportError("Failed to download generated video") from error
         if response.status_code >= 400:
@@ -144,6 +146,15 @@ class RemoteVideoClient:
             path.write_bytes(response.content)
         except OSError as error:
             raise VideoProviderConfigurationError("Unable to store generated video") from error
+        if expected_duration_s is not None:
+            try:
+                actual_duration = await probe_duration(path)
+            except MediaToolError as error:
+                raise VideoProviderResponseError("Unable to probe generated video") from error
+            if actual_duration + 0.1 < expected_duration_s:
+                raise VideoProviderResponseError(
+                    f"Generated video is too short: {actual_duration:.3f}s"
+                )
         return str(path)
 
 

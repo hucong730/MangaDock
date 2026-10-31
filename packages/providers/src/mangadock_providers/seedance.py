@@ -67,7 +67,9 @@ class SeedanceProvider(VideoProvider):
             read_status=lambda payload: payload.get("status", ""),
             read_url=lambda payload: payload["content"]["video_url"],
         )
-        path = await self._client.download(url, self._output_dir, self._headers)
+        path = await self._client.download(
+            url, self._output_dir, self._headers, source_duration
+        )
         return video_result(
             path, duration_s, source_duration, "seedance", config, str(task_id)
         )

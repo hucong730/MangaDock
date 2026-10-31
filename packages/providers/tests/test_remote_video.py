@@ -71,3 +71,17 @@ async def test_remote_download_maps_storage_error(tmp_path) -> None:
             with patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
                 with pytest.raises(VideoProviderConfigurationError, match="store"):
                     await remote.download("https://cdn.test/video.mp4", str(tmp_path), {})
+
+
+@pytest.mark.asyncio
+async def test_remote_download_rejects_unprobeable_video(tmp_path) -> None:
+    async with httpx.AsyncClient() as client:
+        remote = RemoteVideoClient(client, 1, 0)
+        with respx.mock(assert_all_called=True) as mock:
+            mock.get("https://cdn.test/video.mp4").mock(
+                return_value=httpx.Response(200, content=b"not-a-video")
+            )
+            with pytest.raises(VideoProviderResponseError, match="probe"):
+                await remote.download(
+                    "https://cdn.test/video.mp4", str(tmp_path), {}, 4
+                )

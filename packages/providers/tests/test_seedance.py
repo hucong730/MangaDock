@@ -1,4 +1,5 @@
 import json
+import subprocess
 
 import httpx
 import pytest
@@ -14,6 +15,19 @@ from mangadock_providers.video_exceptions import (
 )
 
 BASE = "https://ark.test/api/v3"
+
+
+def mp4_bytes(tmp_path, duration_s=4):
+    path = tmp_path / f"source-{duration_s}.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=24",
+            "-t", str(duration_s), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return path.read_bytes()
 
 
 def make_provider(client, tmp_path, **kwargs):
@@ -54,22 +68,42 @@ async def test_seedance_creates_polls_and_downloads_video(tmp_path) -> None:
                 side_effect=[httpx.Response(200, json={"status": "running"}), success_response()]
             )
             download = mock.get("https://cdn.test/video.mp4").mock(
-                return_value=httpx.Response(200, content=b"mp4")
+                return_value=httpx.Response(200, content=mp4_bytes(tmp_path))
             )
             result = await provider.generate(str(keyframe), "测试", 2, {})
 
-    assert result.path.read_bytes() == b"mp4"
     assert result.duration_s == 2
     assert result.source_duration_s == 4
     assert result.provider == "seedance"
     assert len(poll.calls) == 2
     assert download.called
+    assert "authorization" not in download.calls[0].request.headers
     payload = json.loads(create.calls[0].request.content)
     assert payload["duration"] == 4
     assert payload["generate_audio"] is False
     assert payload["content"][0]["text"] == "测试"
     assert payload["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert create.calls[0].request.headers["authorization"] == "Bearer secret"
+
+
+@pytest.mark.asyncio
+async def test_seedance_rejects_short_video(tmp_path) -> None:
+    keyframe = tmp_path / "frame.png"
+    keyframe.write_bytes(b"png")
+    async with httpx.AsyncClient() as client:
+        provider = make_provider(client, tmp_path)
+        with respx.mock(assert_all_called=True) as mock:
+            mock.post(f"{BASE}/contents/generations/tasks").mock(
+                return_value=httpx.Response(200, json={"id": "task-1"})
+            )
+            mock.get(f"{BASE}/contents/generations/tasks/task-1").mock(
+                return_value=success_response()
+            )
+            mock.get("https://cdn.test/video.mp4").mock(
+                return_value=httpx.Response(200, content=mp4_bytes(tmp_path, duration_s=2))
+            )
+            with pytest.raises(VideoProviderResponseError, match="short"):
+                await provider.generate(str(keyframe), "测试", 2, {})
 
 
 @pytest.mark.asyncio

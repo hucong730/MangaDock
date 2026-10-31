@@ -132,17 +132,9 @@ async def test_render_persists_routes_and_rejects_active_duplicate(
     )
 
     assert response.status_code == 202
-    queue.assert_called_once_with("mangadock_worker.tasks.start_render", project.id, 1)
+    queue.assert_called_once_with("mangadock_worker.tasks.stage_dubbing", project.id, 1)
     async with session_factory() as session:
         routes = list((await session.scalars(select(ProjectVideoRouteRecord))).all())
-        render = await session.scalar(
-            select(ProjectStageRecord).where(
-                ProjectStageRecord.project_id == project.id,
-                ProjectStageRecord.stage == "render",
-            )
-        )
-        render.status = "running"
-        await session.commit()
     assert {(route.episode, route.segment_index) for route in routes} == {(0, 0), (1, 1)}
 
     duplicate = await client.post(

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
@@ -91,5 +91,27 @@ describe("EpisodeStudio", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "重试该镜" }));
     expect(api.retryRenderCut).toHaveBeenCalledWith(7, 1, 1, 2);
+  });
+
+  it("keeps polling while the first render asset does not exist yet", async () => {
+    api.fetchRenderProgress
+      .mockRejectedValueOnce(new Error("not found"))
+      .mockRejectedValueOnce(new Error("not found"))
+      .mockResolvedValue(failedRender);
+    render(<EpisodeStudio projectId={7} storyboard={storyboard} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始渲染" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2100));
+    });
+
+    expect(api.fetchRenderProgress).toHaveBeenCalledTimes(3);
   });
 });

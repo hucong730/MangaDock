@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   fetchEpisodeExport,
@@ -28,6 +28,8 @@ function EpisodeStudio({ projectId, storyboard }: EpisodeStudioProps) {
   const [showSubtitles, setShowSubtitles] = useState(true);
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
+  const [starting, setStarting] = useState(false);
+  const trackRef = useRef<HTMLTrackElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -52,10 +54,23 @@ function EpisodeStudio({ projectId, storyboard }: EpisodeStudioProps) {
   useEffect(() => {
     const rendering = render && ["pending", "running"].includes(render.status);
     const composing = render?.status === "done" && !exported;
-    if (!rendering && !composing) return;
+    if (!starting && !rendering && !composing) return;
     const timer = setTimeout(() => setVersion((value) => value + 1), 2000);
     return () => clearTimeout(timer);
-  }, [render, exported, version]);
+  }, [starting, render, exported, version]);
+
+  useEffect(() => {
+    if (render?.status === "failed" || (render?.status === "done" && exported)) {
+      setStarting(false);
+    }
+    const element = trackRef.current;
+    if (element) {
+      element.setAttribute("mode", showSubtitles ? "showing" : "hidden");
+      if (element.track) {
+        element.track.mode = showSubtitles ? "showing" : "hidden";
+      }
+    }
+  }, [starting, render, exported, showSubtitles]);
 
   async function handleStart() {
     setError("");
@@ -71,8 +86,10 @@ function EpisodeStudio({ projectId, storyboard }: EpisodeStudioProps) {
       });
       setRender(null);
       setExported(null);
+      setStarting(true);
       setVersion((value) => value + 1);
     } catch (reason) {
+      setStarting(false);
       setError(reason instanceof Error ? reason.message : "渲染启动失败");
     }
   }
@@ -82,8 +99,10 @@ function EpisodeStudio({ projectId, storyboard }: EpisodeStudioProps) {
     try {
       await retryRenderCut(projectId, episode, segment, cut);
       setExported(null);
+      setStarting(true);
       setVersion((value) => value + 1);
     } catch (reason) {
+      setStarting(false);
       setError(reason instanceof Error ? reason.message : "单镜重试失败");
     }
   }
@@ -147,7 +166,7 @@ function EpisodeStudio({ projectId, storyboard }: EpisodeStudioProps) {
               src={assetUrl(exported.vtt_path)}
               srcLang="zh"
               label="中文字幕"
-              ref={(element) => element?.setAttribute("mode", showSubtitles ? "showing" : "hidden")}
+              ref={trackRef}
               default
             />
           </video>

@@ -115,7 +115,7 @@ async def test_voice_profile_change_invalidates_dubbing(
 
     assert await run_dubbing_stage(project_id, 1) is True
 
-    assert len(tts_provider.calls) == 4
+    assert len(tts_provider.calls) == 3
 
 
 @pytest.mark.asyncio

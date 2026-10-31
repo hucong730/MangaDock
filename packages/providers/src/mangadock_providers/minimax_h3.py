@@ -71,7 +71,9 @@ class MinimaxH3Provider(VideoProvider):
             read_status=lambda payload: payload.get("task", {}).get("status", ""),
             read_url=lambda payload: payload["task"]["content"]["url"],
         )
-        path = await self._client.download(url, self._output_dir, self._headers)
+        path = await self._client.download(
+            url, self._output_dir, self._headers, source_duration
+        )
         return video_result(
             path, duration_s, source_duration, "minimax_h3", config, str(task_id)
         )

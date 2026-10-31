@@ -28,20 +28,23 @@ def enqueue_render(project_id: int, episode: int) -> None:
     start_render.delay(project_id, episode)
 
 
-def dubbing_fingerprint(script_episode, characters, mode: str) -> str:
+def tts_settings(mode: str) -> dict:
+    return {
+        "mode": mode,
+        "voice_map": os.getenv("EDGE_TTS_VOICE_MAP", "{}"),
+        "default_voice": os.getenv("EDGE_TTS_DEFAULT_VOICE", "zh-CN-XiaoxiaoNeural"),
+        "rate": os.getenv("EDGE_TTS_RATE", "+0%"),
+        "pitch": os.getenv("EDGE_TTS_PITCH", "+0Hz"),
+    }
+
+
+def line_fingerprint(line, characters, mode: str) -> str:
+    character = next(item for item in characters if item.name == line.character)
     return dependency_fingerprint(
         {
-            "script": script_episode,
-            "voices": {
-                character.name: character.voice_prompt for character in characters
-            },
-            "tts": {
-                "mode": mode,
-                "voice_map": os.getenv("EDGE_TTS_VOICE_MAP", "{}"),
-                "default_voice": os.getenv("EDGE_TTS_DEFAULT_VOICE", "zh-CN-XiaoxiaoNeural"),
-                "rate": os.getenv("EDGE_TTS_RATE", "+0%"),
-                "pitch": os.getenv("EDGE_TTS_PITCH", "+0Hz"),
-            },
+            "line": line,
+            "voice": character.voice_prompt,
+            "tts": tts_settings(mode),
         }
     )
 
@@ -89,7 +92,11 @@ async def run_dubbing_stage(project_id: int, episode: int) -> bool:
     script_episode = next(item for item in script.episodes if item.episode == episode)
     board_episode = next(item for item in storyboard.episodes if item.episode == episode)
     mode = os.getenv("MANGADOCK_TTS_MODE", "fake").lower()
-    fingerprint = dubbing_fingerprint(script_episode, characters, mode)
+    lines = build_dubbing_plan(script, board_episode, episode)
+    line_fingerprints = {
+        line.line_id: line_fingerprint(line, characters, mode) for line in lines
+    }
+    fingerprint = dependency_fingerprint(line_fingerprints)
     other_episodes = []
     existing_lines = {}
     if dubbing_asset is not None:
@@ -103,15 +110,13 @@ async def run_dubbing_stage(project_id: int, episode: int) -> bool:
             ),
             None,
         )
-        if existing and existing.get("source_fingerprint") == fingerprint:
+        if existing:
             existing_lines = {line["line_id"]: line for line in existing["lines"]}
     if valid_dubbing_episode(
         dubbing_asset, episode, fingerprint, script, storyboard
     ):
         enqueue_render(project_id, episode)
         return True
-
-    lines = build_dubbing_plan(script, board_episode, episode)
     output_dir = asset_output_dir(project_id, "audio", f"episode_{episode}")
     provider = tts_for_project(project_id, episode, output_dir)
     await set_stage(
@@ -143,10 +148,12 @@ async def run_dubbing_stage(project_id: int, episode: int) -> bool:
 
     completed = 0
     for line in lines:
+        line.source_fingerprint = line_fingerprints[line.line_id]
         existing = existing_lines.get(line.line_id)
         if (
             existing
             and existing["status"] == "done"
+            and existing.get("source_fingerprint") == line.source_fingerprint
             and (asset_root() / existing["audio_path"]).is_file()
         ):
             for field in (

@@ -14,6 +14,7 @@ class DubbingLine(SchemaModel):
     character: str = Field(min_length=1)
     text: str = Field(min_length=1)
     emotion: str = Field(min_length=1)
+    source_fingerprint: str = ""
     audio_path: str | None = None
     start_s: float = Field(default=0, ge=0)
     duration_s: float = Field(default=0, ge=0)

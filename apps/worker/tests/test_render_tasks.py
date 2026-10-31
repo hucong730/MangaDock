@@ -201,6 +201,55 @@ async def test_changed_keyframe_is_not_committed(project_factory, video_provider
 
 
 @pytest.mark.asyncio
+async def test_parallel_segments_preserve_all_completed_clips(project_factory, video_provider) -> None:
+    project_id, session_factory = await prepare_render(project_factory)
+    async with session_factory() as session:
+        storyboard = await session.scalar(
+            select(ProjectAssetRecord).where(
+                ProjectAssetRecord.project_id == project_id,
+                ProjectAssetRecord.kind == "storyboard",
+            )
+        )
+        payload = copy.deepcopy(storyboard.payload_json)
+        second_segment = copy.deepcopy(payload["episodes"][0]["segments"][0])
+        second_segment["index"] = 2
+        payload["episodes"][0]["segments"].append(second_segment)
+        await upsert_project_asset(session, project_id, "storyboard", payload)
+    await render_tasks.ensure_render_episode(project_id, 1)
+
+    results = await asyncio.gather(
+        run_render_segment(project_id, 1, 1),
+        run_render_segment(project_id, 1, 2),
+    )
+
+    assert all(results)
+    segments = (await render_asset(session_factory, project_id)).payload_json["episodes"][0]["segments"]
+    assert [cut["status"] for segment in segments for cut in segment["cuts"]] == ["done"] * 4
+    assert len(video_provider.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_single_cut_retry_leaves_other_failed_cut_untouched(project_factory, video_provider) -> None:
+    project_id, session_factory = await prepare_render(project_factory)
+    original_generate = video_provider.generate
+
+    async def fail_both(keyframe_image, prompt, duration_s, config):
+        raise VideoProviderAPIError("both failed")
+
+    video_provider.generate = fail_both
+    assert await run_render_segment(project_id, 1, 1) is False
+    calls_before = len(video_provider.calls)
+
+    video_provider.generate = original_generate
+    assert await retry_render_cut(project_id, 1, 1, 1) is False
+
+    cuts = (await render_asset(session_factory, project_id)).payload_json["episodes"][0]["segments"][0]["cuts"]
+    assert cuts[0]["status"] == "done"
+    assert cuts[1]["status"] == "failed"
+    assert len(video_provider.calls) == calls_before + 1
+
+
+@pytest.mark.asyncio
 async def test_start_render_creates_segment_chord(
     project_factory,
     monkeypatch: pytest.MonkeyPatch,

@@ -6,6 +6,7 @@ from mangadock_api.database import get_db
 from mangadock_api.media_schemas import RenderRequest, RenderStartResponse
 from mangadock_api.models import (
     ProjectAssetRecord,
+    ProjectRecord,
     ProjectStageRecord,
     ProjectVideoRouteRecord,
     VideoProviderRecord,
@@ -108,7 +109,9 @@ async def start_render(
     payload: RenderRequest,
     session: AsyncSession = Depends(get_db),
 ) -> RenderStartResponse:
-    await get_project(session, project_id)
+    project = await session.get(ProjectRecord, project_id, with_for_update=True)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
     storyboard = await get_asset(session, project_id, "storyboard")
     if storyboard is None:
         raise HTTPException(status_code=409, detail="Storyboard 尚未生成")
@@ -157,17 +160,26 @@ async def start_render(
     render_stage = await get_stage(session, project_id, "render")
     compose_stage = await get_stage(session, project_id, "compose")
     if not dubbing_ready:
-        reset_stage(dubbing_stage)
-    reset_stage(render_stage)
+        reset_stage(dubbing_stage, status="running")
+    reset_stage(render_stage, status="running")
     reset_stage(compose_stage)
+    compose_asset = await get_asset(session, project_id, "compose")
+    if compose_asset is not None:
+        export = next(
+            (
+                item for item in compose_asset.payload_json["episodes"]
+                if item["episode"] == episode
+            ),
+            None,
+        )
+        if export is not None:
+            export["status"] = "pending"
+            for field in ("burned_path", "clean_path", "srt_path", "vtt_path"):
+                export[field] = None
+            await session.flush()
     await session.commit()
-    task = (
-        "mangadock_worker.tasks.start_render"
-        if dubbing_ready
-        else "mangadock_worker.tasks.stage_dubbing"
-    )
     try:
-        enqueue_task(task, project_id, episode)
+        enqueue_task("mangadock_worker.tasks.stage_dubbing", project_id, episode)
     except Exception as error:
         render_stage.status = "failed"
         render_stage.requires_attention = True
@@ -226,7 +238,9 @@ async def retry_cut(
     cut: int,
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    await get_project(session, project_id)
+    project = await session.get(ProjectRecord, project_id, with_for_update=True)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
     stage = await get_stage(session, project_id, "render")
     if stage.status == "running":
         raise HTTPException(status_code=409, detail="渲染进行中，不能重试单镜")
@@ -250,7 +264,7 @@ async def retry_cut(
     clip["status"] = "pending"
     clip["attempt_count"] = 0
     clip["error"] = None
-    stage.status = "pending"
+    stage.status = "running"
     stage.error = None
     stage.requires_attention = False
     await session.commit()
@@ -275,6 +289,6 @@ async def episode_export(
         (item for item in asset.payload_json["episodes"] if item["episode"] == episode),
         None,
     )
-    if export is None:
+    if export is None or export["status"] != "done":
         raise HTTPException(status_code=404, detail="成片尚未合成")
     return export

@@ -4,6 +4,8 @@ import httpx
 import pytest
 import respx
 
+from test_seedance import mp4_bytes
+
 from mangadock_providers.minimax_h3 import MinimaxH3Provider
 from mangadock_providers.video_exceptions import (
     VideoProviderConfigurationError,
@@ -42,11 +44,12 @@ async def test_minimax_h3_uses_first_frame_and_minimum_duration(tmp_path) -> Non
             mock.get(f"{BASE}/v2/video_generation/task-1").mock(
                 side_effect=[httpx.Response(200, json={"task": {"status": "running"}}), success_response()]
             )
-            mock.get("https://cdn.test/h3.mp4").mock(
-                return_value=httpx.Response(200, content=b"mp4")
+            download = mock.get("https://cdn.test/h3.mp4").mock(
+                return_value=httpx.Response(200, content=mp4_bytes(tmp_path))
             )
             result = await provider.generate(str(keyframe), "三字段提示词", 2, {})
 
+    assert "authorization" not in download.calls[0].request.headers
     assert result.duration_s == 2
     assert result.source_duration_s == 4
     assert result.provider == "minimax_h3"
