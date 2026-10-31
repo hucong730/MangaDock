@@ -153,6 +153,49 @@ async def test_render_persists_routes_and_rejects_active_duplicate(
 
 
 @pytest.mark.asyncio
+async def test_completed_pending_assets_do_not_block_render(
+    client: AsyncClient,
+    session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm_id = await create_provider(client)
+    project = await create_media_project(session_factory, llm_id)
+    async with session_factory() as session:
+        session.add(
+            ProjectAssetRecord(
+                project_id=project.id,
+                kind="render",
+                payload_json={
+                    "episodes": [{
+                        "episode": 1,
+                        "segments": [{
+                            "index": 1,
+                            "cuts": [{
+                                "index": 1,
+                                "duration_s": 3,
+                                "status": "done",
+                                "attempt_count": 1,
+                                "provider_id": None,
+                                "clip_path": "clip.mp4",
+                                "source_fingerprint": "a",
+                            }],
+                        }],
+                    }]
+                },
+            )
+        )
+        await session.commit()
+    monkeypatch.setattr(media, "enqueue_task", Mock())
+
+    response = await client.post(
+        f"/api/v1/projects/{project.id}/episodes/1/render",
+        json={},
+    )
+
+    assert response.status_code == 202
+
+
+@pytest.mark.asyncio
 async def test_render_requires_storyboard(client: AsyncClient, session_factory) -> None:
     llm_id = await create_provider(client)
     async with session_factory() as session:

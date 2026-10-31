@@ -47,6 +47,29 @@ def reset_stage(stage, status="pending") -> None:
     stage.requires_attention = False
 
 
+def asset_in_flight(asset, kind: str, episode: int) -> bool:
+    if asset is None:
+        return False
+    episode_asset = next(
+        (item for item in asset.payload_json["episodes"] if item["episode"] == episode),
+        None,
+    )
+    if episode_asset is None:
+        return False
+    if kind == "compose":
+        return episode_asset["status"] in {"pending", "running"}
+    if kind == "dubbing":
+        return any(
+            line["status"] in {"pending", "running"}
+            for line in episode_asset["lines"]
+        )
+    return any(
+        cut["status"] in {"pending", "running"}
+        for segment in episode_asset["segments"]
+        for cut in segment["cuts"]
+    )
+
+
 async def save_route(
     session: AsyncSession,
     project_id: int,
@@ -104,7 +127,9 @@ async def start_render(
     for name in ("dubbing", "render", "compose"):
         stage = await get_stage(session, project_id, name)
         asset = await get_asset(session, project_id, name)
-        if stage.status == "running" or (stage.status == "pending" and asset is not None):
+        if stage.status == "running" or (
+            stage.status == "pending" and asset_in_flight(asset, name, episode)
+        ):
             raise HTTPException(status_code=409, detail="当前项目已有渲染任务进行中")
     if payload.video_provider_id is not None:
         await save_route(session, project_id, 0, 0, payload.video_provider_id)
