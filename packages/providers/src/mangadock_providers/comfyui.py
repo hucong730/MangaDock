@@ -1,14 +1,10 @@
-import asyncio
-import json
-import os
-import time
 import uuid
 from collections.abc import Sequence
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
+from mangadock_providers.comfyui_client import ComfyUIClientError, ComfyUIHttpClient
 from mangadock_providers.image_base import ImageProvider, ImageResult
 from mangadock_providers.image_exceptions import (
     ImageProviderAPIError,
@@ -17,6 +13,14 @@ from mangadock_providers.image_exceptions import (
     ImageProviderTimeoutError,
     ImageProviderTransportError,
 )
+
+ERROR_TYPES = {
+    "configuration": ImageProviderConfigurationError,
+    "transport": ImageProviderTransportError,
+    "api": ImageProviderAPIError,
+    "response": ImageProviderResponseError,
+    "timeout": ImageProviderTimeoutError,
+}
 
 
 class ComfyUIProvider(ImageProvider):
@@ -30,47 +34,15 @@ class ComfyUIProvider(ImageProvider):
         timeout_s: float = 300,
         poll_interval_s: float = 2,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
         self._workflow_id = workflow_id
-        self._output_dir = Path(output_dir)
-        self._api_key = api_key
-        self._client = client or httpx.AsyncClient(timeout=60)
-        self._timeout_s = timeout_s
-        self._poll_interval_s = poll_interval_s
-
-    def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-
-    def _load_template(self) -> dict[str, Any]:
-        template_dir = Path(
-            os.getenv(
-                "COMFYUI_TEMPLATE_DIR",
-                str(Path(__file__).parents[2] / "comfyui" / "templates"),
-            )
+        self._output_dir = output_dir
+        self._client = ComfyUIHttpClient(
+            base_url=base_url,
+            api_key=api_key,
+            client=client,
+            timeout_s=timeout_s,
+            poll_interval_s=poll_interval_s,
         )
-        return json.loads(
-            (template_dir / f"{self._workflow_id}.json").read_text(encoding="utf-8")
-        )
-
-    async def _upload_reference(self, filename: str) -> str:
-        path = Path(filename)
-        try:
-            response = await self._client.post(
-                f"{self._base_url}/upload/image",
-                headers=self._headers(),
-                data={"overwrite": "true", "type": "input"},
-                files={"image": (path.name, path.read_bytes(), "image/png")},
-            )
-        except httpx.HTTPError as error:
-            raise ImageProviderTransportError("Failed to upload reference image") from error
-        if response.status_code >= 400:
-            raise ImageProviderAPIError(
-                f"ComfyUI upload returned HTTP {response.status_code}"
-            )
-        payload = response.json()
-        subfolder = payload.get("subfolder", "")
-        name = payload.get("name", path.name)
-        return f"{subfolder}/{name}" if subfolder else name
 
     async def generate(
         self,
@@ -82,72 +54,40 @@ class ComfyUIProvider(ImageProvider):
             raise ImageProviderConfigurationError(
                 "ComfyUI supports at most 4 reference images"
             )
-        workflow = self._load_template()
-        text_node = next(
-            node
-            for node in workflow.values()
-            if node["class_type"] == "TextEncodeQwenImage21"
-        )
-        text_node["inputs"]["prompt"] = prompt
-        text_node["inputs"]["negative_prompt"] = (
-            "blurry, low quality, distorted facial features, changed identity"
-        )
-        text_node["inputs"]["resolution"] = max(size)
-        sampler = next(
-            node for node in workflow.values() if node["class_type"] == "KSampler"
-        )
-        sampler["inputs"]["seed"] = uuid.uuid4().int % (2**31)
-
-        for index, filename in enumerate(reference_images, start=1):
-            uploaded = await self._upload_reference(filename)
-            node_id = str(7 + index)
-            if index == 1:
-                workflow[node_id]["inputs"]["image"] = uploaded
-            else:
-                workflow[node_id] = {
-                    "class_type": "LoadImage",
-                    "inputs": {"image": uploaded},
-                }
-            text_node["inputs"][f"images.image_{index}"] = [node_id, 0]
-
         try:
-            response = await self._client.post(
-                f"{self._base_url}/prompt",
-                headers=self._headers(),
-                json={"prompt": workflow, "client_id": uuid.uuid4().hex},
+            workflow = self._client.load_template(self._workflow_id)
+            text_node = next(
+                node
+                for node in workflow.values()
+                if node["class_type"] == "TextEncodeQwenImage21"
             )
-        except httpx.HTTPError as error:
-            raise ImageProviderTransportError("Failed to submit ComfyUI workflow") from error
-        if response.status_code >= 400:
-            raise ImageProviderAPIError(
-                f"ComfyUI prompt returned HTTP {response.status_code}"
+            text_node["inputs"]["prompt"] = prompt
+            text_node["inputs"]["negative_prompt"] = (
+                "blurry, low quality, distorted facial features, changed identity"
             )
-        try:
-            prompt_id = response.json()["prompt_id"]
-        except (KeyError, ValueError) as error:
-            raise ImageProviderResponseError("ComfyUI prompt response missing prompt_id") from error
+            text_node["inputs"]["resolution"] = max(size)
+            sampler = next(
+                node for node in workflow.values() if node["class_type"] == "KSampler"
+            )
+            sampler["inputs"]["seed"] = uuid.uuid4().int % (2**31)
 
-        image_metadata = await self._poll_result(prompt_id)
-        try:
-            response = await self._client.get(
-                f"{self._base_url}/view",
-                headers=self._headers(),
-                params={
-                    "filename": image_metadata["filename"],
-                    "subfolder": image_metadata.get("subfolder", ""),
-                    "type": image_metadata.get("type", "output"),
-                },
-            )
-        except httpx.HTTPError as error:
-            raise ImageProviderTransportError("Failed to download ComfyUI image") from error
-        if response.status_code >= 400:
-            raise ImageProviderAPIError(
-                f"ComfyUI view returned HTTP {response.status_code}"
-            )
+            for index, filename in enumerate(reference_images, start=1):
+                uploaded = await self._client.upload_image(filename)
+                node_id = str(7 + index)
+                if index == 1:
+                    workflow[node_id]["inputs"]["image"] = uploaded
+                else:
+                    workflow[node_id] = {
+                        "class_type": "LoadImage",
+                        "inputs": {"image": uploaded},
+                    }
+                text_node["inputs"][f"images.image_{index}"] = [node_id, 0]
 
-        self._output_dir.mkdir(parents=True, exist_ok=True)
-        path = self._output_dir / f"{uuid.uuid4().hex}.png"
-        path.write_bytes(response.content)
+            prompt_id = await self._client.submit(workflow)
+            metadata = await self._client.poll_media(prompt_id, ("images",))
+            path = await self._client.download(metadata, self._output_dir, ".png")
+        except ComfyUIClientError as error:
+            raise ERROR_TYPES[error.kind](str(error)) from error
         width, height = size
         return ImageResult(
             path=path,
@@ -155,41 +95,5 @@ class ComfyUIProvider(ImageProvider):
             height=height,
             format="png",
             workflow_id=self._workflow_id,
-            metadata={"prompt_id": prompt_id, **image_metadata},
+            metadata={"prompt_id": prompt_id, **metadata},
         )
-
-    async def _poll_result(self, prompt_id: str) -> dict[str, Any]:
-        deadline = time.monotonic() + self._timeout_s
-        while True:
-            try:
-                response = await self._client.get(
-                    f"{self._base_url}/history/{prompt_id}",
-                    headers=self._headers(),
-                )
-            except httpx.HTTPError as error:
-                raise ImageProviderTransportError("Failed to poll ComfyUI history") from error
-            if response.status_code >= 400:
-                raise ImageProviderAPIError(
-                    f"ComfyUI history returned HTTP {response.status_code}"
-                )
-            try:
-                payload = response.json()
-            except ValueError as error:
-                raise ImageProviderResponseError("Invalid ComfyUI history response") from error
-            history = payload.get(prompt_id) if isinstance(payload, dict) else None
-            if history is not None and not isinstance(history, dict):
-                raise ImageProviderResponseError("Invalid ComfyUI history response")
-            if history is not None:
-                status = history.get("status", {}).get("status_str", "")
-                if status in {"error", "failed"}:
-                    raise ImageProviderResponseError("ComfyUI workflow failed")
-                outputs = history.get("outputs", {})
-                for node_output in outputs.values():
-                    images = node_output.get("images", [])
-                    if images:
-                        return images[0]
-                if status == "success":
-                    raise ImageProviderResponseError("ComfyUI returned no output images")
-            if time.monotonic() >= deadline:
-                raise ImageProviderTimeoutError("ComfyUI workflow timed out")
-            await asyncio.sleep(self._poll_interval_s)

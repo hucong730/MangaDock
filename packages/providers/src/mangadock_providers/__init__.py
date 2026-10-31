@@ -29,6 +29,7 @@ from mangadock_providers.tts_exceptions import (
     TTSProviderResponseError,
     TTSProviderTransportError,
 )
+from mangadock_providers.wan import WanProvider
 from mangadock_providers.video_base import VideoProvider, VideoResult
 from mangadock_providers.video_exceptions import (
     VideoProviderAPIError,
@@ -75,4 +76,5 @@ __all__ = [
     "VideoProviderTimeoutError",
     "VideoProviderTransportError",
     "VideoResult",
+    "WanProvider",
 ]
