@@ -33,6 +33,7 @@ Provider 通过 `provider_capabilities` 表声明 script、image、video 一项�
 
 ## 影响
 
-- 图像和视频配置是后续管线的稳定输入，不代表已经实现媒体生成。
-- 后续 ImageProvider/VideoProvider 应直接读取项目路由，不应重新选择默认模型。
+- 图像路由继续由本 ADR 的 project_provider_routes 承载。
+- 阶段四起，实际视频后端改由独立 video_providers 与 project_video_routes 承载，以支持厂商专属配置和精确到分镜段的路由；旧 role=video 仅保留兼容展示，不隐式迁移。
+- 后续 ImageProvider/VideoProvider 应直接读取对应项目路由，不应重新选择默认模型。
 - 修改能力类型或引用规则需同步更新 CRUD、项目创建、前端、测试和本 ADR。

@@ -6,13 +6,13 @@ MangaDock (漫坞) — One novel in, a comic-drama series out. An open, pluggabl
 
 ## 当前阶段
 
-阶段三已支持角色设定、参考图与分镜管线：
+阶段四已支持视频生成、配音与单集合成导出：
 
-- 上传 PDF / DOCX / TXT，生成结构化 Outline 和分集 Script，状态与失败原因落库。
-- 为角色生成中英提示词、音色和外观锚点；正面全身图经人工确认后才生成其他视图。
-- 生成 episode → segment → cut 分镜，机器校验 2–5 秒镜头、角色锚点和完整台词覆盖，并生成每镜关键帧。
-- LLM 与图像模型可按项目独立路由；支持 OpenAI 兼容、ComfyUI 和不访问真实服务的 Fake/Mock 实现。
-- 前端提供项目进度、Outline/Script、角色卡、锚点确认、单图重试和分镜时间轴。
+- 上传小说后生成 Outline、Script、角色参考图和分镜关键帧。
+- 逐句生成配音并记录真实时长，按分镜段选择 Wan、Seedance 或 MiniMax H3，段内并行生成镜头。
+- 单镜失败自动重试一次，之后可独立补跑；依赖指纹避免复用旧关键帧、音色或 Provider 资产。
+- ffmpeg 合成 1080p 视频、配音和字幕，导出烧录版、干净版、SRT 与 WebVTT。
+- 前端提供视频 Provider 配置、段/镜进度、单镜重试、播放器字幕开关和下载。
 
 ## 仓库结构
 
@@ -192,9 +192,50 @@ curl -X POST http://localhost:8000/api/v1/llm-providers/ \
 
 创建项目时将该 Provider 的 id 传给 `image_provider_id`。`host.docker.internal` 用于 worker 容器访问 Mac 上的 ComfyUI；若在宿主机直接运行 worker，则改用 `http://127.0.0.1:8188`。API Key 环境变量可以为空，模板位于 `packages/providers/comfyui/templates`，可替换工作流而不改业务代码。
 
+## 视频与配音 Mock 验收
+
+默认 `MANGADOCK_VIDEO_MODE=fake`、`MANGADOCK_TTS_MODE=fake`，不访问真实视频或语音服务。Worker 镜像内置 ffmpeg/ffprobe 与中文字体。
+
+1. 按前文创建项目并确认全部角色锚点，等待 Storyboard 完成。
+2. 对每集调用：
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/projects/1/episodes/1/render \
+     -H 'Content-Type: application/json' \
+     -d '{"segment_providers":{}}'
+   ```
+   Fake 模式允许省略视频路由。若需验证段级选择，先在“视频 Provider”区域添加配置，再传 `video_provider_id` 或 `segment_providers:{"1": 2}`。
+3. 轮询 `GET /api/v1/projects/1/episodes/1/render`，查看段/镜进度；失败镜调用 `POST /projects/1/episodes/1/segments/{segment}/cuts/{cut}/retry`。
+4. 合成后访问 `GET /api/v1/projects/1/episodes/1/export`，或打开 `http://localhost:5173/projects/1` 的“成片”区域。
+5. 下载 `episode_1.mp4`（烧录版）、`episode_1_clean.mp4`（播放器版）、`.srt` 和 `.vtt`。字幕时间码来自实测配音时长。
+
+可用 worker 内的 ffprobe 验证输出：
+
+```bash
+docker compose exec worker ffprobe -v error -show_streams -show_format -of json /data/projects/1/exports/episode_1/episode_1_clean.mp4
+```
+
+## 真实视频与 TTS 环境变量
+
+| 后端 | 必需配置 | 其他配置 |
+| --- | --- | --- |
+| Wan / ComfyUI | Provider 的 `base_url`；`COMFYUI_API_KEY` 可空 | `COMFYUI_TEMPLATE_DIR`、Wan 模型文件 |
+| Seedance | `ARK_API_KEY`；Provider 的 `base_url`、`model` | `public_asset_base_url`、`min_duration_s` |
+| MiniMax H3 | `MINIMAX_API_KEY`；Provider 的 `base_url`、`model` | `public_asset_base_url`、`resolution` |
+| Edge-TTS | 无密钥 | `EDGE_TTS_DEFAULT_VOICE`、`EDGE_TTS_VOICE_MAP`、`EDGE_TTS_RATE`、`EDGE_TTS_PITCH` |
+
+Wan2.2 TI2V 5B 模型放置于：
+
+```text
+ComfyUI/models/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors
+ComfyUI/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+ComfyUI/models/vae/wan2.2_vae.safetensors
+```
+
+真实模式分别设置 `MANGADOCK_VIDEO_MODE=live`、`MANGADOCK_TTS_MODE=live`。远程视频默认可接收 Base64 首帧；配置 `public_asset_base_url` 时按每个关键帧的相对路径生成 URL。`VIDEO_MAX_CONCURRENCY` 和 Provider 的 `max_concurrency` 共同限制段内并行，`VIDEO_PROVIDER_TIMEOUT_S` 控制轮询超时。字幕可通过 `SUBTITLE_FONT`、`SUBTITLE_FONT_SIZE`、`SUBTITLE_ALIGNMENT`、`SUBTITLE_OUTLINE` 调整。
+
 ## 本地测试
 
-本地 Python 测试要求 Python 3.12，前端要求 Node.js 22。
+本地 Python 测试要求 Python 3.12，前端要求 Node.js 22，媒体测试还要求支持 libass 的 ffmpeg/ffprobe。
 
 ```bash
 python3.12 -m venv .venv
@@ -225,10 +266,12 @@ OpenAI 兼容测试使用 respx，管线使用 FakeLLMProvider，均不访问真
 - [Outline/Script schema ADR](docs/decisions/0002-outline-script-schema.md)
 - [多模型能力路由 ADR](docs/decisions/0003-model-capability-routing.md)
 - [角色锚点与分镜 ADR](docs/decisions/0004-character-anchor-storyboard.md)
+- [视频、配音与合成 ADR](docs/decisions/0005-video-dubbing-compose.md)
 - [阶段一设计](docs/superpowers/specs/2026-10-30-stage-one-foundation-design.md)
 - [阶段二设计](docs/superpowers/specs/2026-10-30-stage-two-novel-script-pipeline-design.md)
 - [阶段三设计](docs/superpowers/specs/2026-10-30-character-storyboard-design.md)
+- [阶段四设计](docs/superpowers/specs/2026-10-31-video-dubbing-compose-design.md)
 
 ## 当前边界
 
-已实现角色参考图和分镜，尚未实现场景图、视频、TTS、认证、多租户和生产级密钥管理。数据库仍使用启动时自动建表，尚未引入 Alembic；20MB 以上或超过字符上限的长小说需要后续分章摘要架构。许可证为 [MIT](LICENSE)。
+已实现角色参考图、分镜、视频、配音与单集导出，尚未实现场景图、口型同步、声音克隆、认证、多租户和生产级密钥管理。真实 Wan/Seedance/MiniMax/Edge-TTS 需要各自环境验收。数据库仍使用启动时自动建表，尚未引入 Alembic；20MB 以上或超过字符上限的长小说需要后续分章摘要架构。许可证为 [MIT](LICENSE)。
