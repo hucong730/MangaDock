@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Model-independent providers for MangaDock"
 requires-python = ">=3.12"
 dependencies = [
+  "edge-tts>=7,<8",
   "httpx>=0.27,<1",
   "pydantic>=2.7,<3",
 ]

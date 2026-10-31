@@ -1,5 +1,6 @@
 from mangadock_providers.base import LLMProvider
 from mangadock_providers.comfyui import ComfyUIProvider
+from mangadock_providers.edge_tts import EdgeTTSProvider
 from mangadock_providers.fake import FakeLLMProvider
 from mangadock_providers.exceptions import (
     ProviderAPIError,
@@ -45,6 +46,7 @@ from mangadock_providers.video_exceptions import (
 __all__ = [
     "AudioResult",
     "ComfyUIProvider",
+    "EdgeTTSProvider",
     "FakeLLMProvider",
     "ImageProvider",
     "ImageProviderAPIError",
