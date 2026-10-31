@@ -1,6 +1,7 @@
 from mangadock_worker.celery_app import celery_app
 from mangadock_worker import (
     character_tasks,
+    compose_tasks,
     dubbing_tasks,
     pipeline_tasks,
     render_tasks,

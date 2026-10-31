@@ -5,6 +5,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY packages/core/pyproject.toml packages/core/pyproject.toml
 COPY packages/core/src packages/core/src
 COPY packages/providers/pyproject.toml packages/providers/pyproject.toml
