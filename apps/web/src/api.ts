@@ -1,14 +1,18 @@
 import type {
   CharacterAsset,
   CreateProviderInput,
+  CreateVideoProviderInput,
+  EpisodeExport,
   HealthResponse,
   LLMProvider,
   Outline,
   ProjectDetail,
   ProjectStatus,
   ProjectSummary,
+  RenderProgress,
   Script,
   Storyboard,
+  VideoProvider,
 } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -97,4 +101,47 @@ export function retryStage(
   stage: "outline" | "script" | "characters" | "storyboard",
 ): Promise<{ project_id: number; stage: string; status: string }> {
   return request(`/api/v1/projects/${id}/stages/${stage}/retry`, { method: "POST" });
+}
+
+export function fetchVideoProviders(): Promise<VideoProvider[]> {
+  return request<VideoProvider[]>("/api/v1/video-providers/");
+}
+
+export function createVideoProvider(input: CreateVideoProviderInput): Promise<VideoProvider> {
+  return request<VideoProvider>("/api/v1/video-providers/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function fetchRenderProgress(projectId: number, episode: number): Promise<RenderProgress> {
+  return request<RenderProgress>(`/api/v1/projects/${projectId}/episodes/${episode}/render`);
+}
+
+export function fetchEpisodeExport(projectId: number, episode: number): Promise<EpisodeExport> {
+  return request<EpisodeExport>(`/api/v1/projects/${projectId}/episodes/${episode}/export`);
+}
+
+export function startEpisodeRender(
+  projectId: number,
+  episode: number,
+  input: { video_provider_id?: number; segment_providers: Record<string, number> },
+): Promise<{ project_id: number; episode: number; status: string }> {
+  return request(`/api/v1/projects/${projectId}/episodes/${episode}/render`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function retryRenderCut(
+  projectId: number,
+  episode: number,
+  segment: number,
+  cut: number,
+): Promise<{ status: string }> {
+  return request(`/api/v1/projects/${projectId}/episodes/${episode}/segments/${segment}/cuts/${cut}/retry`, {
+    method: "POST",
+  });
 }

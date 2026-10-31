@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { fetchHealth, fetchProjects, fetchProviders } from "../api";
+import { createVideoProvider, fetchHealth, fetchProjects, fetchProviders, fetchVideoProviders } from "../api";
 import ProviderForm from "../components/ProviderForm";
 import ProjectUpload from "../components/ProjectUpload";
-import type { HealthResponse, LLMProvider, ProjectSummary } from "../types";
+import VideoProviderForm from "../components/VideoProviderForm";
+import type { HealthResponse, LLMProvider, ProjectSummary, VideoProvider } from "../types";
 
 type LoadState<T> =
   | { status: "loading" }
@@ -16,6 +17,7 @@ function ProjectsPage() {
   const [health, setHealth] = useState<LoadState<HealthResponse>>({ status: "loading" });
   const [providers, setProviders] = useState<LoadState<LLMProvider[]>>({ status: "loading" });
   const [projects, setProjects] = useState<LoadState<ProjectSummary[]>>({ status: "loading" });
+  const [videoProviders, setVideoProviders] = useState<VideoProvider[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -25,6 +27,9 @@ function ProjectsPage() {
     fetchProviders()
       .then((data) => active && setProviders({ status: "success", data }))
       .catch(() => active && setProviders({ status: "error" }));
+    fetchVideoProviders()
+      .then((data) => active && setVideoProviders(data))
+      .catch(() => active && setVideoProviders([]));
     fetchProjects()
       .then((data) => active && setProjects({ status: "success", data }))
       .catch(() => active && setProjects({ status: "error" }));
@@ -112,6 +117,31 @@ function ProjectsPage() {
                       <span key={capability} className={`capability-badge ${capability}`}>{capability}</span>
                     ))}</td>
                     <td><code>{provider.api_key_env}</code></td><td>{provider.enabled ? "已启用" : "已停用"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel" aria-labelledby="video-providers-heading">
+        <div className="section-heading"><h2 id="video-providers-heading">视频 Provider</h2></div>
+        <VideoProviderForm
+          onCreate={async (input) => {
+            const provider = await createVideoProvider(input);
+            setVideoProviders((current) => [...current, provider]);
+          }}
+        />
+        {videoProviders.length > 0 && (
+          <div className="table-wrapper">
+            <table>
+              <thead><tr><th>名称</th><th>后端</th><th>Base URL</th><th>模型</th><th>状态</th></tr></thead>
+              <tbody>
+                {videoProviders.map((provider) => (
+                  <tr key={provider.id}>
+                    <td>{provider.name}</td><td>{provider.kind}</td><td>{provider.base_url}</td>
+                    <td>{provider.model}</td><td>{provider.enabled ? "已启用" : "已停用"}</td>
                   </tr>
                 ))}
               </tbody>

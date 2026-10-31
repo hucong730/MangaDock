@@ -13,6 +13,11 @@ const api = vi.hoisted(() => ({
   confirmAnchor: vi.fn(),
   regenerateCharacterImage: vi.fn(),
   retryStage: vi.fn(),
+  fetchVideoProviders: vi.fn(),
+  fetchRenderProgress: vi.fn(),
+  fetchEpisodeExport: vi.fn(),
+  startEpisodeRender: vi.fn(),
+  retryRenderCut: vi.fn(),
 }));
 
 vi.mock("../api", () => api);
@@ -136,6 +141,11 @@ beforeEach(() => {
   api.confirmAnchor.mockResolvedValue({ status: "queued" });
   api.regenerateCharacterImage.mockResolvedValue({ status: "queued" });
   api.retryStage.mockResolvedValue({ project_id: 7, stage: "script", status: "pending" });
+  api.fetchVideoProviders.mockResolvedValue([]);
+  api.fetchRenderProgress.mockRejectedValue(new Error("尚未渲染"));
+  api.fetchEpisodeExport.mockRejectedValue(new Error("尚未合成"));
+  api.startEpisodeRender.mockResolvedValue({ status: "pending" });
+  api.retryRenderCut.mockResolvedValue({ status: "pending" });
 });
 
 afterEach(() => {

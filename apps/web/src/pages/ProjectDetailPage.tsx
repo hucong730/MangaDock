@@ -14,6 +14,7 @@ import {
   retryStage,
 } from "../api";
 import CharacterGallery from "../components/CharacterGallery";
+import EpisodeStudio from "../components/EpisodeStudio";
 import OutlineView from "../components/OutlineView";
 import ScriptView from "../components/ScriptView";
 import StatusTimeline from "../components/StatusTimeline";
@@ -210,7 +211,10 @@ function ProjectDetailPage() {
         />
       </section>
       {storyboard && (
-        <section className="panel"><StoryboardTimeline storyboard={storyboard} /></section>
+        <>
+          <section className="panel"><StoryboardTimeline storyboard={storyboard} /></section>
+          <section className="panel"><EpisodeStudio projectId={projectId} storyboard={storyboard} /></section>
+        </>
       )}
     </main>
   );

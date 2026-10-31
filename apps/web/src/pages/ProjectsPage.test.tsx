@@ -61,6 +61,9 @@ function mockApi() {
     if (url === "/healthz") {
       return Promise.resolve(jsonResponse({ status: "ok", database: "ok" }));
     }
+    if (url === "/api/v1/video-providers/" && !init?.method) {
+      return Promise.resolve(jsonResponse([]));
+    }
     if (url === "/api/v1/llm-providers/" && init?.method === "POST") {
       return Promise.resolve(
         jsonResponse({
@@ -107,13 +110,13 @@ describe("ProjectsPage", () => {
     fireEvent.change(screen.getByLabelText("Provider 名称"), {
       target: { value: "新视频模型" },
     });
-    fireEvent.change(screen.getByLabelText("Base URL"), {
+    fireEvent.change(screen.getAllByLabelText("Base URL")[0], {
       target: { value: "https://video.example.com/v2" },
     });
     fireEvent.change(screen.getByLabelText("模型名称"), {
       target: { value: "video-max-v2" },
     });
-    fireEvent.change(screen.getByLabelText("密钥环境变量"), {
+    fireEvent.change(screen.getAllByLabelText("密钥环境变量")[0], {
       target: { value: "VIDEO_API_KEY" },
     });
     fireEvent.click(screen.getByLabelText("剧本生成"));

@@ -11,6 +11,9 @@ const labels: Record<string, string> = {
   script: "剧本",
   characters: "角色",
   storyboard: "分镜",
+  dubbing: "配音",
+  render: "渲染",
+  compose: "合成",
 };
 
 function StatusTimeline({ stages, onRetry }: StatusTimelineProps) {
@@ -24,6 +27,7 @@ function StatusTimeline({ stages, onRetry }: StatusTimelineProps) {
           failed: `${label}失败`,
           pending: `${label}等待中`,
           waiting_confirmation: "等待锚点确认",
+          outdated: `${label}已过期`,
         }[stage.status];
         return (
           <li key={stage.stage} className={`stage-item ${stage.status}`}>
