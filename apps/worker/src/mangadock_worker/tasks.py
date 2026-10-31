@@ -3,6 +3,7 @@ from mangadock_worker import (
     character_tasks,
     dubbing_tasks,
     pipeline_tasks,
+    render_tasks,
     storyboard_tasks,
 )
 

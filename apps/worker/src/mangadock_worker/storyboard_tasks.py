@@ -25,7 +25,7 @@ from mangadock_worker.asset_paths import (
     relative_asset_path,
 )
 from mangadock_worker.celery_app import celery_app
-from mangadock_worker.character_tasks import get_stage
+from mangadock_worker.character_tasks import get_stage, invalidate_generated_media
 from mangadock_worker.image_factory import image_provider_for_record
 from mangadock_worker.pipeline_tasks import new_session, run_async_task, set_stage
 from mangadock_worker.provider_factory import provider_for_record
@@ -263,6 +263,9 @@ async def run_storyboard_stage(project_id: int) -> bool:
         error=None,
         requires_attention=False,
     )
+    async with new_session() as session:
+        await invalidate_generated_media(session, project_id)
+        await session.commit()
     return True
 
 

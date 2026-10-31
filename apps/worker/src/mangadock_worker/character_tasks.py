@@ -52,6 +52,44 @@ async def get_stage(project_id: int, stage_name: str) -> ProjectStageRecord:
         return stage
 
 
+async def invalidate_generated_media(session, project_id: int) -> None:
+    for kind in ("dubbing", "render", "compose"):
+        asset = await session.scalar(
+            select(ProjectAssetRecord).where(
+                ProjectAssetRecord.project_id == project_id,
+                ProjectAssetRecord.kind == kind,
+            )
+        )
+        stage = await session.scalar(
+            select(ProjectStageRecord).where(
+                ProjectStageRecord.project_id == project_id,
+                ProjectStageRecord.stage == kind,
+            )
+        )
+        if stage is not None:
+            stage.status = "outdated"
+            stage.error = "Upstream character anchor changed"
+            stage.requires_attention = True
+        if asset is None:
+            continue
+        payload = copy.deepcopy(asset.payload_json)
+        for episode in payload["episodes"]:
+            if kind == "dubbing":
+                for line in episode["lines"]:
+                    line["status"] = "failed"
+                    line["error"] = "Upstream character anchor changed"
+            elif kind == "render":
+                for segment in episode["segments"]:
+                    for cut in segment["cuts"]:
+                        cut["status"] = "outdated"
+                        cut["clip_path"] = None
+            else:
+                episode["status"] = "outdated"
+                for field in ("burned_path", "clean_path", "srt_path", "vtt_path"):
+                    episode[field] = None
+        asset.payload_json = payload
+
+
 async def sync_character_asset(project_id: int) -> None:
     async with new_session() as session:
         characters = list(
@@ -425,6 +463,7 @@ async def regenerate_character_image(image_id: int) -> bool:
                 storyboard_stage.attempt_count = 0
                 storyboard_stage.error = None
                 storyboard_stage.requires_attention = False
+            await invalidate_generated_media(session, character.project_id)
             await session.commit()
 
     if image.label == "front_full":
