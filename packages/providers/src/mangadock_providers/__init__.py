@@ -20,7 +20,9 @@ from mangadock_providers.image_exceptions import (
 from mangadock_providers.mock_image import MockImageProvider
 from mangadock_providers.mock_tts import MockTTSProvider
 from mangadock_providers.mock_video import MockVideoProvider
+from mangadock_providers.minimax_h3 import MinimaxH3Provider
 from mangadock_providers.openai_compatible import OpenAICompatibleProvider
+from mangadock_providers.seedance import SeedanceProvider
 from mangadock_providers.tts_base import AudioResult, TTSProvider
 from mangadock_providers.tts_exceptions import (
     TTSProviderAPIError,
@@ -56,7 +58,9 @@ __all__ = [
     "MockImageProvider",
     "MockTTSProvider",
     "MockVideoProvider",
+    "MinimaxH3Provider",
     "OpenAICompatibleProvider",
+    "SeedanceProvider",
     "ProviderAPIError",
     "ProviderConfigurationError",
     "ProviderError",
